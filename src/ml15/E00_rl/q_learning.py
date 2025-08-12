@@ -10,8 +10,7 @@ class RandomAgent:
         self.num_actions = env.action_space.n
 
         # Tabla estados x acciones
-        self.Q = np.zeros((env.observation_space.n,
-                           env.action_space.n))
+        self.Q = np.zeros((env.observation_space.n, env.action_space.n))
         # Parameters
         self.alpha = alpha  # Learning rate
         self.gamma = gamma  # Discount factor
@@ -49,11 +48,11 @@ if __name__ == "__main__":
     # 3. ejecuta el script para ver el comportamiento del agente
     # 4. Implementa una técnica para reducir la exploración conforme el agente aprende
     # https://gymnasium.farama.org/environments/toy_text/cliff_walking/
-    env = gym.make("CliffWalking-v0", render_mode="human")
+    env = gym.make("CliffWalking-v1", render_mode="human")
 
     n_episodes = 1000
     episode_length = 200
-    agent = QLearningAgent(env, alpha=0.1, gamma=0.9, epsilon=0.9)
+    agent = RandomAgent(env, alpha=0.1, gamma=0.9, epsilon=0.9)
     for e in range(n_episodes):
         obs, _ = env.reset()
         ep_return = 0
@@ -72,7 +71,6 @@ if __name__ == "__main__":
             env.render()
         # TODO: Implementa algun código para reducir la exploración del agente conforme aprende
         # puedes decidir hacerlo por episodio, por paso del tiempo, retorno promedio, etc.
-
 
         print(f"Episode {e} return: ", ep_return)
     env.close()
