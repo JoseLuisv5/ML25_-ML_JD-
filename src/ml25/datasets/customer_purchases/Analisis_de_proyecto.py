@@ -10,8 +10,11 @@ import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
 
-DEF_TRAIN = r"c:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\customer_purchases_train.csv"
-DEF_OUT   = r"c:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\out_features_agg"
+DEF_TRAIN = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\customer_purchases_train.csv"
+DEF_OUT   = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\out_features_agg"
+
+#DEF_TRAIN = r"c:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\customer_purchases_train.csv"
+#DEF_OUT   = r"c:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\out_features_agg"
 CUTOFF = pd.Timestamp("2025-09-21")
 ADJ_WORDS = ["exclusive","style","casual","stylish","elegant",
              "durable","classic","lightweight","modern","premium"]
