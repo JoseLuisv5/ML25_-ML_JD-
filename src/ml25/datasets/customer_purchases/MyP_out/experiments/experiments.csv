@@ -1,2 +1,0 @@
-run_id,model,select_k,cv_acc,cv_f1,cv_auc,test_acc,test_f1,test_auc
-20251008_171125,rf,0,,,,,,

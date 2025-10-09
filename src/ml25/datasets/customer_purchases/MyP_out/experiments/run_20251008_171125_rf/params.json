@@ -1,9 +1,0 @@
-{
-  "model": "rf",
-  "test_size": 0.25,
-  "kfolds": 2,
-  "select_k": 0,
-  "random_state": 42,
-  "n_features": 38,
-  "note": "solo_una_clase_global"
-}
