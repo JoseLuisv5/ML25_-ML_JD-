@@ -1,0 +1,8 @@
+{
+  "cv_accuracy_mean": NaN,
+  "cv_f1_mean": NaN,
+  "cv_roc_auc_mean": NaN,
+  "test_accuracy": NaN,
+  "test_f1": NaN,
+  "test_roc_auc": NaN
+}

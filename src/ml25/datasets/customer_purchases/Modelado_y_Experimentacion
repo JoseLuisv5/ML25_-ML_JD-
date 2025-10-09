@@ -1,0 +1,429 @@
+# Modelado_y_Experimentacion.py
+# Uso:
+#   python Modelado_y_Experimentacion.py
+#   python Modelado_y_Experimentacion.py --train "C:\ruta\train.csv" --outdir "C:\ruta\Modelado_y_Experimentacion_out" --model rf --select_k 40
+import argparse, os, json, time, re, math
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_validate
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.feature_selection import SelectKBest, mutual_info_classif
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, confusion_matrix, RocCurveDisplay
+
+# Defaults
+DEF_TRAIN = r"c:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\customer_purchases_train.csv"
+DEF_OUT   = r"c:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\MyP_out"
+CUTOFF = pd.Timestamp("2025-09-21")
+ADJ_WORDS = ["exclusive","style","casual","stylish","elegant","durable","classic","lightweight","modern","premium"]
+
+def ensure(p): os.makedirs(p, exist_ok=True); return p
+def to_dt(s): return pd.to_datetime(s, errors="coerce")
+def num(s):   return pd.to_numeric(s, errors="coerce")
+
+def canon(x):
+    if isinstance(x, str):
+        t = x.strip().lower()
+        return "unk" if t in ("", "nan", "none", "unknown", "unspecified") else t
+    return "unk"
+
+def color_from_img(fname):
+    if not isinstance(fname, str): return "unk"
+    m = re.search(r"img([a-z]+)\.", fname.lower())
+    code = (m.group(1) if m else "")
+    mapp = {"r":"red","g":"green","y":"yellow","w":"white","o":"orange","p":"purple","bl":"blue","b":"blue","bk":"black","gr":"green"}
+    return mapp.get(code, "unk")
+
+def id_to_num(s):
+    s = str(s); digs = "".join(ch for ch in s if ch.isdigit())
+    return int(digs) if digs else np.nan
+
+def make_multi_hot(df, col, prefix):
+    tmp = df[["customer_id", col]].copy()
+    tmp["customer_id"] = tmp["customer_id"].apply(id_to_num).astype("Int64")
+    tmp[col] = tmp[col].map(canon)
+    dmy = pd.get_dummies(tmp[col], prefix=prefix, dtype=np.int8)
+    dmy = pd.concat([tmp[["customer_id"]], dmy], axis=1).groupby("customer_id").max().reset_index()
+    return dmy
+
+def make_adj_hot(df, words):
+    tmp = df[["customer_id", "item_title"]].copy()
+    tmp["customer_id"] = tmp["customer_id"].apply(id_to_num).astype("Int64")
+    t = tmp["item_title"].fillna("").str.lower()
+    for w in words:
+        tmp[f"adj_{w}"] = t.str.contains(rf"\b{re.escape(w)}\b", na=False).astype(np.int8)
+    keep = ["customer_id"] + [f"adj_{w}" for w in words]
+    return tmp[keep].groupby("customer_id").max().reset_index()
+
+def drop_all_zero_columns(df):
+    keep = ["customer_id","antiguedad_dias","edad_anios","dias_desde_ultima_compra","visitas","gasto_pct","compras"]
+    drop = [c for c in df.columns if c not in keep and np.isfinite(df[c]).all() and df[c].sum()==0]
+    return df.drop(columns=drop)
+
+# ---------------- EDA (una sola imagen) ----------------
+def run_eda(df_raw, outdir):
+    eda_dir = ensure(os.path.join(outdir, "eda"))
+    df = df_raw.copy()
+    df["purchase_timestamp"] = to_dt(df.get("purchase_timestamp"))
+    df = df[df["purchase_timestamp"].notna() & (df["purchase_timestamp"] <= CUTOFF)]
+
+    schema = []
+    for c in df.columns:
+        dtype = str(df[c].dtype)
+        nmiss = int(df[c].isna().sum())
+        nunique = int(df[c].nunique(dropna=True))
+        pct = 100.0 * nmiss / len(df) if len(df) else 0.0
+        schema.append({"col": c, "dtype": dtype, "n_miss": nmiss, "pct_miss": round(pct,2), "n_unique": nunique})
+    pd.DataFrame(schema).to_csv(os.path.join(eda_dir,"00_resumen_columnas.csv"), index=False)
+
+    num_cols = [c for c in ["item_price","customer_item_views","item_avg_rating","item_num_ratings"] if c in df.columns]
+    if num_cols:
+        df[num_cols].describe(include="all").to_csv(os.path.join(eda_dir,"01_numeric_describe.csv"))
+
+    cust = df.groupby("customer_id").agg(gasto_total=("item_price","sum"), compras=("purchase_id","count")).reset_index()
+    cust["gasto_pct"] = cust["gasto_total"].rank(pct=True)*100.0
+
+    def vc_top(s, top=12):
+        s = s.fillna("unk").astype(str).str.strip().str.lower().replace({"": "unk"})
+        vc = s.value_counts()
+        head, tail = vc.head(top), vc.iloc[top:]
+        if tail.sum() > 0:
+            head = pd.concat([head, pd.Series({"otros": tail.sum()})])
+        return head
+
+    cats_to_plot = []
+    if "item_category" in df:    cats_to_plot.append(("Categoría", vc_top(df["item_category"], top=12)))
+    if "purchase_device" in df:  cats_to_plot.append(("Dispositivo", vc_top(df["purchase_device"], top=12)))
+    if "customer_gender" in df:  cats_to_plot.append(("Género", vc_top(df["customer_gender"], top=12)))
+
+    plot_items = []
+    if len(cust) > 0:
+        idx = np.arange(1, len(cust)+1)
+        plot_items.append(("scatter", "Gasto percentil por cliente", (idx, cust["gasto_pct"].values, np.nanmean(cust["gasto_pct"].values))))
+        plot_items.append(("scatter", "Compras por cliente", (idx, cust["compras"].values, np.nanmean(cust["compras"].values))))
+    for c in num_cols:
+        x = pd.to_numeric(df[c], errors="coerce").dropna()
+        if len(x) > 0:
+            plot_items.append(("hist", f"Distribución de {c}", x))
+    for titulo, vc in cats_to_plot:
+        if not vc.empty:
+            vc.to_csv(os.path.join(eda_dir, f"cat_{titulo.lower()}_top.csv"))
+            plot_items.append(("bar", f"{titulo}", vc))
+    if "item_category" in df:
+        vc_cat = vc_top(df["item_category"], top=8)
+        if not vc_cat.empty:
+            plot_items.append(("pie", "Categoría (participación)", vc_cat))
+
+    def annotate_bars(ax):
+        for p in ax.patches:
+            h = p.get_height()
+            if np.isfinite(h) and h > 0:
+                ax.annotate(f"{int(h)}", (p.get_x()+p.get_width()/2, h),
+                            ha="center", va="bottom", fontsize=8, xytext=(0,2), textcoords="offset points")
+
+    n = len(plot_items); ncols = 3; nrows = max(1, math.ceil(n / ncols))
+    fig = plt.figure(figsize=(ncols*6.2, nrows*4.2))
+    for i, (kind, name, data) in enumerate(plot_items, start=1):
+        ax = fig.add_subplot(nrows, ncols, i)
+        if kind == "scatter":
+            x, y, ymean = data
+            ax.scatter(x, y, s=14, alpha=0.85)
+            if np.isfinite(ymean): ax.axhline(ymean, linestyle="--", linewidth=1)
+            ax.set_title(name); ax.set_xlabel("cliente"); ax.set_ylabel("valor" if "percentil" not in name.lower() else "percentil")
+        elif kind == "hist":
+            ax.hist(data, bins=30); ax.set_title(name); ax.set_xlabel(name.replace("Distribución de ", "")); ax.set_ylabel("conteo")
+        elif kind == "bar":
+            (data.sort_values(ascending=False)).plot(kind="bar", ax=ax)
+            ax.set_title(name); ax.set_xlabel("categoría"); ax.set_ylabel("conteo"); ax.tick_params(axis="x", rotation=45); annotate_bars(ax)
+        elif kind == "pie":
+            vals, labels = data.values, data.index.tolist()
+            autop = lambda p: f"{p:.0f}%" if p >= 3 else ""
+            ax.pie(vals, labels=labels, autopct=autop); ax.set_title(name)
+    plt.tight_layout()
+    big = os.path.join(eda_dir, "all_plots.png"); fig.savefig(big, dpi=170); plt.close(fig)
+    return df
+
+# ---------------- Features ----------------
+def build_feature_matrix(df_valid):
+    df = df_valid.copy()
+    df["customer_signup_date"]   = to_dt(df.get("customer_signup_date"))
+    df["customer_date_of_birth"] = to_dt(df.get("customer_date_of_birth"))
+    df["item_price"]             = num(df.get("item_price"))
+    df["customer_item_views"]    = num(df.get("customer_item_views")).fillna(0)
+    df["purchase_device"]        = df.get("purchase_device").map(canon)
+    df["item_category"]          = df.get("item_category").map(canon)
+    df["customer_gender"]        = df.get("customer_gender").map(canon)
+    df["color"]                  = df.get("item_img_filename").apply(color_from_img)
+
+    base = df.groupby("customer_id").agg(
+        signup_min=("customer_signup_date","min"),
+        dob_min=("customer_date_of_birth","min"),
+        last_purchase=("purchase_timestamp","max"),
+        visitas=("customer_item_views","sum"),
+        gasto_total=("item_price","sum")
+    ).reset_index()
+    compras_df = df.groupby("customer_id").size().rename("compras").reset_index()
+    base = base.merge(compras_df, on="customer_id", how="left").fillna({"compras":0})
+    base["compras"] = base["compras"].astype(np.int32)
+
+    base["customer_id"] = base["customer_id"].apply(id_to_num).astype("Int64")
+    base["antiguedad_dias"] = (CUTOFF - base["signup_min"]).dt.days
+    base["edad_anios"] = ((CUTOFF - base["dob_min"]).dt.days/365.25).round(2)
+    base["dias_desde_ultima_compra"] = (CUTOFF - base["last_purchase"]).dt.days
+    base["gasto_pct"] = base["gasto_total"].rank(pct=True)*100.0
+
+    genero_oh      = make_multi_hot(df, "customer_gender", "genero")
+    categoria_oh   = make_multi_hot(df, "item_category",   "categoria")
+    dispositivo_oh = make_multi_hot(df, "purchase_device", "dispositivo")
+    color_oh       = make_multi_hot(df, "color",           "color")
+    adj_oh         = make_adj_hot(df, ADJ_WORDS)
+
+    feat = base[["customer_id","antiguedad_dias","edad_anios","dias_desde_ultima_compra","visitas","gasto_pct","compras"]]
+    for d in (genero_oh, categoria_oh, dispositivo_oh, color_oh, adj_oh):
+        d["customer_id"] = d["customer_id"].astype("Int64")
+        feat = feat.merge(d, on="customer_id", how="left")
+
+    feat = feat.fillna(0)
+    feat["customer_id"] = feat["customer_id"].astype(np.int32)
+    for c in feat.columns:
+        if c != "customer_id":
+            if feat[c].dtype == np.float64: feat[c] = feat[c].astype(np.float32)
+            if feat[c].dtype == np.int64:   feat[c] = feat[c].astype(np.int32)
+    feat = drop_all_zero_columns(feat)
+    return feat
+
+def get_labels_per_customer(raw_csv):
+    df = pd.read_csv(raw_csv)
+    df["purchase_timestamp"] = to_dt(df["purchase_timestamp"])
+    df = df[df["purchase_timestamp"].notna() & (df["purchase_timestamp"] <= CUTOFF)]
+    if "label" not in df.columns: raise SystemExit("No existe columna 'label' en el CSV de train.")
+    lab = df.groupby("customer_id")["label"].max().reset_index()
+    lab["customer_id"] = lab["customer_id"].map(id_to_num).astype("Int64")
+    return lab.rename(columns={"label":"y"})
+
+# ---------------- Modelo ----------------
+def make_model(name, rs):
+    if name=="lr":
+        return Pipeline([("scaler", StandardScaler(with_mean=False)),
+                         ("clf", LogisticRegression(max_iter=400, solver="lbfgs", random_state=rs))])
+    return Pipeline([("clf", RandomForestClassifier(n_estimators=300, random_state=rs, n_jobs=-1))])
+
+def add_feature_selection(pipe, k, n_features):
+    if not k or k<=0: return pipe
+    k = max(1, min(k, n_features))
+    steps = pipe.steps; clf_name, clf_est = steps[-1]
+    return Pipeline(steps[:-1] + [("kbest", SelectKBest(mutual_info_classif, k=k)), (clf_name, clf_est)])
+
+def save_confusion(cm, path_png):
+    fig, ax = plt.subplots(figsize=(4,3))
+    im = ax.imshow(cm, cmap="Blues")
+    ax.set_title("confusion"); ax.set_xlabel("pred"); ax.set_ylabel("real")
+    ax.set_xticks([0,1]); ax.set_xticklabels(["0","1"])
+    ax.set_yticks([0,1]); ax.set_yticklabels(["0","1"])
+    for (i,j),v in np.ndenumerate(cm): ax.text(j, i, int(v), ha="center", va="center")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    plt.tight_layout(); fig.savefig(path_png, dpi=160); plt.close(fig)
+
+def train_and_log(feat_csv, raw_train_csv, out_base, model_name, test_size, kfolds, select_k, rs):
+    run_id = time.strftime("%Y%m%d_%H%M%S")
+    run_dir = ensure(os.path.join(out_base, f"run_{run_id}_{model_name}"))
+
+    feat = pd.read_csv(feat_csv)
+    labels = get_labels_per_customer(raw_train_csv)
+    df = feat.merge(labels, on="customer_id", how="inner")
+
+    y_all = df["y"].astype(int).values
+    clases = np.unique(y_all)
+
+    if len(clases) < 2:
+        X = df.drop(columns=["customer_id","y"]).values
+        y = y_all
+        feat_names = [c for c in df.columns if c not in ("customer_id","y")]
+        model = add_feature_selection(make_model(model_name, rs), select_k, len(feat_names))
+        model.fit(X, y)
+        metrics = {"cv_accuracy_mean": np.nan, "cv_f1_mean": np.nan, "cv_roc_auc_mean": np.nan,
+                   "test_accuracy": np.nan, "test_f1": np.nan, "test_roc_auc": np.nan}
+        with open(os.path.join(run_dir, "params.json"), "w") as f:
+            json.dump({"model": model_name, "test_size": test_size, "kfolds": kfolds,
+                       "select_k": int(select_k), "random_state": rs,
+                       "n_features": int(len(feat_names)), "note": "solo_una_clase_global"}, f, indent=2)
+        with open(os.path.join(run_dir, "metrics.json"), "w") as f: json.dump(metrics, f, indent=2)
+        log_row = {"run_id": run_id, "model": model_name, "select_k": int(select_k),
+                   "cv_acc": np.nan, "cv_f1": np.nan, "cv_auc": np.nan,
+                   "test_acc": np.nan, "test_f1": np.nan, "test_auc": np.nan}
+        pd.DataFrame([log_row]).to_csv(os.path.join(out_base, "experiments.csv"),
+                                       mode="a", index=False, header=not os.path.exists(os.path.join(out_base,"experiments.csv")))
+        return run_dir, metrics
+
+    X = df.drop(columns=["customer_id","y"]).values
+    y = y_all
+    feat_names = [c for c in df.columns if c not in ("customer_id","y")]
+    model = add_feature_selection(make_model(model_name, rs), select_k, len(feat_names))
+
+    try:
+        X_tr, X_te, y_tr, y_te, idx_tr, idx_te = train_test_split(
+            X, y, np.arange(len(y)), test_size=test_size, random_state=rs, stratify=y
+        )
+    except ValueError:
+        X_tr, X_te, y_tr, y_te, idx_tr, idx_te = train_test_split(
+            X, y, np.arange(len(y)), test_size=min(test_size, 0.2), random_state=rs
+        )
+
+    min_class = int(np.bincount(y_tr).min())
+    n_splits = max(2, min(kfolds, min_class)) if min_class > 0 else 2
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=rs)
+    try:
+        cv_scores = cross_validate(model, X_tr, y_tr, scoring=["accuracy","f1"], cv=cv, n_jobs=-1, error_score=np.nan)
+        cv_acc = float(np.nanmean(cv_scores["test_accuracy"]))
+        cv_f1  = float(np.nanmean(cv_scores["test_f1"]))
+        cv_auc = np.nan
+    except Exception:
+        cv_acc = np.nan; cv_f1 = np.nan; cv_auc = np.nan
+
+    model.fit(X_tr, y_tr)
+
+    y_pred = model.predict(X_te)
+    y_prob = None
+    try:
+        proba = model.predict_proba(X_te)
+        if proba.shape[1] == 2:
+            clf = model.named_steps.get("clf", None) or list(model.steps)[-1][1]
+            clases_modelo = getattr(clf, "classes_", None)
+            if clases_modelo is not None and len(clases_modelo) == 2:
+                idx_pos = int(np.where(clases_modelo == 1)[0][0])
+                y_prob = proba[:, idx_pos]
+    except Exception:
+        y_prob = None
+
+    acc = float(accuracy_score(y_te, y_pred))
+    try: f1  = float(f1_score(y_te, y_pred))
+    except Exception: f1 = np.nan
+
+    test_auc = np.nan
+    if y_prob is not None and len(np.unique(y_te)) == 2:
+        try: test_auc = float(roc_auc_score(y_te, y_prob))
+        except Exception: test_auc = np.nan
+
+    metrics = {"cv_accuracy_mean": cv_acc, "cv_f1_mean": cv_f1, "cv_roc_auc_mean": cv_auc,
+               "test_accuracy": acc, "test_f1": f1, "test_roc_auc": test_auc}
+
+    with open(os.path.join(run_dir, "params.json"), "w") as f:
+        json.dump({"model": model_name, "test_size": test_size, "kfolds": n_splits,
+                   "select_k": int(select_k), "random_state": rs,
+                   "n_features": int(len(feat_names))}, f, indent=2)
+    with open(os.path.join(run_dir, "metrics.json"), "w") as f: json.dump(metrics, f, indent=2)
+
+    try:
+        cm = confusion_matrix(y_te, y_pred, labels=[0,1])
+        save_confusion(cm, os.path.join(run_dir, "confusion.png"))
+    except Exception:
+        pass
+
+    if y_prob is not None and len(np.unique(y_te)) == 2:
+        try:
+            fig, ax = plt.subplots(figsize=(4,3))
+            RocCurveDisplay.from_predictions(y_te, y_prob, ax=ax)
+            ax.set_title("ROC"); plt.tight_layout()
+            fig.savefig(os.path.join(run_dir, "roc.png"), dpi=160); plt.close(fig)
+        except Exception:
+            pass
+
+    try:
+        clf = model.named_steps.get("clf", None) or list(model.steps)[-1][1]
+        if hasattr(clf, "feature_importances_"):
+            if "kbest" in model.named_steps:
+                mask = model.named_steps["kbest"].get_support()
+                names = np.array(feat_names)[mask]
+            else:
+                names = np.array(feat_names)
+            imp = pd.DataFrame({"feature": names, "importance": clf.feature_importances_}).sort_values("importance", ascending=False)
+            imp.to_csv(os.path.join(run_dir, "feature_importance.csv"), index=False)
+            top = imp.head(20)
+            fig, ax = plt.subplots(figsize=(6,4))
+            ax.barh(top["feature"][::-1], top["importance"][::-1])
+            ax.set_title("importancia"); ax.set_xlabel("score"); ax.set_ylabel("feature")
+            plt.tight_layout(); fig.savefig(os.path.join(run_dir, "feature_importance.png"), dpi=160); plt.close(fig)
+        elif hasattr(clf, "coef_"):
+            if "kbest" in model.named_steps:
+                mask = model.named_steps["kbest"].get_support()
+                names = np.array(feat_names)[mask]
+            else:
+                names = np.array(feat_names)
+            coef = np.squeeze(clf.coef_)
+            imp = pd.DataFrame({"feature": names, "coef": coef, "abs": np.abs(coef)}).sort_values("abs", ascending=False)
+            imp.to_csv(os.path.join(run_dir, "coefficients.csv"), index=False)
+            top = imp.head(20)
+            fig, ax = plt.subplots(figsize=(6,4))
+            ax.barh(top["feature"][::-1], top["abs"][::-1])
+            ax.set_title("coef (abs)"); ax.set_xlabel("magnitud"); ax.set_ylabel("feature")
+            plt.tight_layout(); fig.savefig(os.path.join(run_dir, "coefficients.png"), dpi=160); plt.close(fig)
+    except Exception:
+        pass
+
+    test_ids = df.iloc[idx_te]["customer_id"].values
+    pred_df = pd.DataFrame({"customer_id": test_ids, "y_true": y_te, "y_pred": y_pred,
+                            "y_prob": y_prob if y_prob is not None else np.nan})
+    pred_df.to_csv(os.path.join(run_dir, "predicciones.csv"), index=False)
+
+    log_row = {"run_id": run_id, "model": model_name, "select_k": int(select_k),
+               "cv_acc": metrics["cv_accuracy_mean"], "cv_f1": metrics["cv_f1_mean"],
+               "cv_auc": metrics["cv_roc_auc_mean"], "test_acc": metrics["test_accuracy"],
+               "test_f1": metrics["test_f1"], "test_auc": metrics.get("test_roc_auc", np.nan)}
+    log_path = os.path.join(out_base, "experiments.csv")
+    pd.DataFrame([log_row]).to_csv(log_path, mode="a", index=False, header=not os.path.exists(log_path))
+
+    return run_dir, metrics
+
+# ---------------- Main ----------------
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--train", type=str, default=DEF_TRAIN)
+    p.add_argument("--outdir", type=str, default=DEF_OUT)
+    p.add_argument("--model", type=str, default="rf", choices=["rf","lr"])
+    p.add_argument("--test_size", type=float, default=0.25)
+    p.add_argument("--kfolds", type=int, default=5)
+    p.add_argument("--select_k", type=int, default=0)
+    p.add_argument("--random_state", type=int, default=42)
+    return p.parse_args()
+
+def main():
+    args = parse_args()
+    base_dir = ensure(args.outdir)
+    ensure(os.path.join(base_dir, "eda"))
+    feat_dir = ensure(os.path.join(base_dir, "features"))
+    exp_dir  = ensure(os.path.join(base_dir, "experiments"))
+
+    raw = pd.read_csv(args.train)
+    df_valid = run_eda(raw, base_dir)
+    feat = build_feature_matrix(df_valid)
+    feat_csv = os.path.join(feat_dir, "train_features_per_customer.csv")
+    feat.to_csv(feat_csv, index=False)
+
+    labs = get_labels_per_customer(args.train)
+    tmp = feat.merge(labs, on="customer_id", how="inner")
+    y_all = tmp["y"].astype(int).values
+    min_class = int(np.bincount(y_all).min()) if y_all.size else 0
+    auto_k = max(2, min(args.kfolds, min_class)) if min_class > 0 else 2
+
+    run_dir, metrics = train_and_log(
+        feat_csv=feat_csv,
+        raw_train_csv=args.train,
+        out_base=exp_dir,
+        model_name=args.model,
+        test_size=args.test_size,
+        kfolds=auto_k,
+        select_k=args.select_k,
+        rs=args.random_state
+    )
+
+    print("OK.")
+    print("EDA:", os.path.join(base_dir, "eda", "all_plots.png"))
+    print("Features CSV:", feat_csv)
+    print("Experimento:", run_dir)
+    print(json.dumps(metrics, indent=2))
+
+if __name__ == "__main__":
+    main()
