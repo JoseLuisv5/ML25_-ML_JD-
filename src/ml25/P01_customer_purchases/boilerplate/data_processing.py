@@ -17,7 +17,7 @@ def read_csv(filename: str):
 
 def save_df(df, filename: str):
     # Guardar
-    save_path = os.path.join(DATA_DIR, "customer_features.csv")
+    save_path = os.path.join(DATA_DIR, filename)
     df.to_csv(save_path, index=False)
     print(f"df saved to {save_path}")
 
