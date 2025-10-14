@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/jlvh0/Documents/ML25_-ML_JD-/mlruns/654106894782933239/1858088855554980a19be932156444eb/artifacts
+end_time: 1760406866233
+entry_point_name: ''
+experiment_id: '654106894782933239'
+lifecycle_stage: active
+run_id: 1858088855554980a19be932156444eb
+run_name: logistica_v1
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1760406855671
+status: 3
+tags: []
+user_id: jlvh0
