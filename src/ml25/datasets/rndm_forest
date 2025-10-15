@@ -1,0 +1,66 @@
+import pandas as pd, numpy as np, re, os, mlflow, mlflow.sklearn
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix
+
+RAW  = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\customer_purchases_train.csv"
+FEAT = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\out_features_agg\train\train_features_per_customer.csv"
+OUT  = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases\out_features_agg\train\preds_rf.csv"
+T0 = pd.Timestamp("2025-08-21")
+THRESH = 0.5
+
+def to_int_safe(x):
+    try: return int(x)
+    except:
+        if isinstance(x,str):
+            m=re.search(r"(\d+)",x); return int(m.group(1)) if m else np.nan
+        return np.nan
+
+raw = pd.read_csv(RAW)
+raw["purchase_timestamp"] = pd.to_datetime(raw["purchase_timestamp"], errors="coerce")
+buyers = raw[(raw["purchase_timestamp"]>T0)&(raw["purchase_timestamp"]<=T0+pd.Timedelta(days=30))]["customer_id"]
+buyers = buyers.apply(to_int_safe).dropna().astype(int).unique().tolist()
+buyers_set = set(buyers)
+
+feat = pd.read_csv(FEAT)
+feat["label"] = feat["customer_id"].astype(int).isin(buyers_set).astype(int)
+X_df = feat.drop(columns=["customer_id","label"])
+y = feat["label"].astype(int).values
+ids = feat["customer_id"].astype(int).values
+
+X_tr, X_va, y_tr, y_va, ids_tr, ids_va = train_test_split(X_df, y, ids, test_size=0.25, stratify=y, random_state=42)
+
+model = RandomForestClassifier(
+    n_estimators=600,
+    max_depth=None,
+    min_samples_leaf=10,
+    max_features="sqrt",
+    n_jobs=-1,
+    random_state=42
+)
+model.fit(X_tr, y_tr)
+
+p_val = model.predict_proba(X_va)[:,1]
+yhat = (p_val>=THRESH).astype(int)
+acc = accuracy_score(y_va, yhat)
+roc = roc_auc_score(y_va, p_val)
+pr  = average_precision_score(y_va, p_val)
+cm  = confusion_matrix(y_va, yhat)
+cm_path = OUT.replace(".csv", "_cm.csv")
+pd.DataFrame(cm, index=["true_0","true_1"], columns=["pred_0","pred_1"]).to_csv(cm_path, index=True)
+print(f"Accuracy (RandomForest): {acc:.4f}")
+
+p_all = model.predict_proba(X_df)[:,1]
+pred_all = (p_all>=THRESH).astype(int)
+out_df = pd.DataFrame({"customer_id": ids, "pred": pred_all}).sort_values("customer_id")
+out_df.to_csv(OUT, index=False)
+print(f"CSV guardado: {OUT}  (filas: {len(out_df)})")
+
+mlflow.set_experiment("propension_compra")
+with mlflow.start_run(run_name="rf_v1"):
+    params = model.get_params(); params.update({"threshold":THRESH})
+    mlflow.log_params({k:(str(v) if v is None else v) for k,v in params.items()})
+    mlflow.log_metrics({"accuracy":float(acc),"roc_auc":float(roc),"pr_auc":float(pr)})
+    if os.path.exists(OUT): mlflow.log_artifact(OUT)
+    if os.path.exists(cm_path): mlflow.log_artifact(cm_path)
+    mlflow.sklearn.log_model(model, artifact_path="model")

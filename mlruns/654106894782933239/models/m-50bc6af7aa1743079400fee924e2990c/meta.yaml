@@ -1,0 +1,10 @@
+artifact_location: file:///C:/Users/jlvh0/Documents/ML25_-ML_JD-/mlruns/654106894782933239/models/m-50bc6af7aa1743079400fee924e2990c/artifacts
+creation_timestamp: 1760406607095
+experiment_id: '654106894782933239'
+last_updated_timestamp: 1760406613294
+model_id: m-50bc6af7aa1743079400fee924e2990c
+model_type: null
+name: model
+source_run_id: e801660151a048398e48869d09ace526
+status: 2
+status_message: null
