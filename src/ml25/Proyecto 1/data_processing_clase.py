@@ -1,298 +1,179 @@
 import pandas as pd
+import numpy as np
+from pathlib import Path
+from datetime import datetime
+from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.feature_extraction.text import CountVectorizer
 
-from sklearn.compose import ColumnTransformer
-import joblib
-
-import os
-from pathlib import Path
-from datetime import datetime
-from ml25.P01_customer_purchases.boilerplate.negative_generation import (
-    gen_all_negatives,
-    gen_random_negatives,
-)
+DATA_DIR = Path(r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases")
+OUT_DIR  = Path(r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto 1")
+OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 DATA_COLLECTED_AT = datetime(2025, 9, 21).date()
-CURRENT_FILE = Path(__file__).resolve()
-DATA_DIR = CURRENT_FILE / "../../datasets/customer_purchases/"
+CUST_FEAT_PATH = OUT_DIR / "customer_features.csv"
+PER_CUST_PATH = OUT_DIR / "train_features_per_customer.csv"
+ADJ_LIST = ["exclusive","style","casual","stylish","elegant","durable","classic","lightweight","modern","premium","cozy","sporty","trendy","soft"]
 
+def read_csv(n: str): return pd.read_csv(DATA_DIR / f"{n}.csv")
 
-def read_csv(filename: str):
-    file = os.path.join(DATA_DIR, f"{filename}.csv")
-    fullfilename = os.path.abspath(file)
-    df = pd.read_csv(fullfilename)
-    return df
+def _age_years(s):
+    dob = pd.to_datetime(s, errors="coerce")
+    return ((pd.Timestamp(DATA_COLLECTED_AT) - dob).dt.days // 365).astype("Int64")
 
+def _age_range(a):
+    bins = [-1,17,24,34,44,54,64,150]
+    labs = ["<=18","18-24","25-34","35-44","45-54","55-64","65+"]
+    return pd.cut(a, bins=bins, labels=labs)
 
-def save_df(df, filename: str):
-    # Guardar
-    save_path = os.path.join(DATA_DIR, filename)
-    save_path = os.path.abspath(save_path)
-    df.to_csv(save_path, index=False)
-    print(f"df saved to {save_path}")
+def _img_color(f):
+    f = str(f).lower()
+    m = {"imgb.jpg":"blue","imgbl.jpg":"black","imgg.jpg":"green","imgr.jpg":"red","imgp.jpg":"pink","imgo.jpg":"orange","imgy.jpg":"yellow","imgw.jpg":"white","imgpr.jpg":"purple"}
+    return m.get(f,"unknown")
 
+def _base_row_features(df):
+    d = df.copy()
+    d["customer_age_years"] = _age_years(d["customer_date_of_birth"])
+    d["customer_age_range"] = _age_range(d["customer_age_years"])
+    d["customer_tenure_years"] = ((pd.Timestamp(DATA_COLLECTED_AT) - pd.to_datetime(d["customer_signup_date"], errors="coerce")).dt.days // 365).astype("Int64")
+    d["item_color"] = d["item_img_filename"].map(_img_color)
+    if "purchase_device" not in d.columns: d["purchase_device"] = "unknown"
+    if "purchase_timestamp" in d.columns: d["purchase_timestamp"] = pd.to_datetime(d["purchase_timestamp"], errors="coerce")
+    return d
 
-def df_to_numeric(df):
-    data = df.copy()
-    for c in data.columns:
-        data[c] = pd.to_numeric(data[c], errors="coerce")
-    return data
+def _mode_or_unknown(s):
+    s = s.dropna()
+    return s.mode().iloc[0] if len(s) else "unknown"
 
+def extract_customer_features(train_df):
+    d = _base_row_features(train_df)
+    g = d.groupby("customer_id")
+    out = pd.DataFrame({
+        "customer_id": g["customer_id"].first(),
+        "customer_age_years": g["customer_age_years"].median(),
+        "customer_age_range": g["customer_age_range"].first(),
+        "customer_tenure_years": g["customer_tenure_years"].median(),
+        "customer_purchases": g["purchase_id"].count(),
+        "customer_spend_total": g["item_price"].sum(),
+        "customer_spend_avg": g["item_price"].mean(),
+        "customer_price_max": g["item_price"].max(),
+        "customer_price_min": g["item_price"].min(),
+        "customer_views_sum": g["customer_item_views"].sum() if "customer_item_views" in d.columns else 0,
+        "customer_ratings_avg": g["item_avg_rating"].mean() if "item_avg_rating" in d.columns else 0,
+        "customer_num_ratings_avg": g["item_num_ratings"].mean() if "item_num_ratings" in d.columns else 0,
+        "customer_top_category": g["item_category"].apply(_mode_or_unknown),
+        "customer_top_device": g["purchase_device"].apply(_mode_or_unknown),
+        "customer_top_color": g["item_color"].apply(_mode_or_unknown),
+        "customer_last_purchase": g["purchase_timestamp"].max() if "purchase_timestamp" in d.columns else pd.NaT,
+    }).reset_index(drop=True)
+    out.to_csv(CUST_FEAT_PATH, index=False)
+    return out
 
-def extract_customer_features(df):
-    # ['purchase_id',  'item_id', 'item_title',
-    #    'item_category', 'item_price', 'item_img_filename', 'item_avg_rating',
-    #    'item_num_ratings', 'item_release_date', 'purchase_timestamp']
-    train_df = df.copy()
-    customer_columns = [
-        "customer_id",
-        "customer_date_of_birth",
-        "customer_gender",
-        "customer_signup_date",
-    ]
-    today = datetime.strptime("2025-21-09", "%Y-%d-%m")
-    dates = ["customer_date_of_birth", "customer_signup_date"]
-    for col in dates:
-        train_df[col] = pd.to_datetime(train_df[col])
+def _one_hot_from_values(prefix, s, top=None):
+    vc = s.value_counts().head(top) if top else s.value_counts()
+    cols = sorted(vc.index.astype(str).tolist())
+    oh = pd.get_dummies(s.astype(str), prefix=prefix)
+    keep = [f"{prefix}_{c}" for c in cols]
+    for c in keep:
+        if c not in oh.columns: oh[c] = 0
+    return oh[keep].astype(int)
 
-    group = train_df.groupby("customer_id")
+def _adj_binary(series):
+    texts = series.fillna("").astype(str).str.lower()
+    data = {}
+    for w in ADJ_LIST:
+        data[f"adj_{w}"] = texts.str.contains(rf"\b{w}\b", regex=True).astype(int)
+    return pd.DataFrame(data).astype(int)
 
-    # -------- Tratamientos de fechas --------#
-    age = (today - train_df["customer_date_of_birth"]) // 365
-    train_df["age"] = age.astype(int)
-    customer_ages = group["age"].first()
+def build_per_customer_matrix(train_df):
+    d = _base_row_features(train_df)
+    d["genero"] = d["customer_gender"].fillna("unk") if "customer_gender" in d.columns else "unk"
+    genero = _one_hot_from_values("genero", d.groupby("customer_id")["genero"].agg(_mode_or_unknown))
+    medio = _one_hot_from_values("medio", d.groupby("customer_id")["purchase_device"].agg(_mode_or_unknown)) if "purchase_device" in d.columns else pd.DataFrame()
+    color = _one_hot_from_values("color", d.groupby("customer_id")["item_color"].agg(_mode_or_unknown))
+    cats = _one_hot_from_values("categoria", d.groupby("customer_id")["item_category"].agg(_mode_or_unknown))
+    adjs = _adj_binary(d.groupby("customer_id")["item_title"].agg(lambda x: " ".join([str(t) for t in x]) if "item_title" in d.columns else "")) if "item_title" in d.columns else pd.DataFrame()
+    cust = d.groupby("customer_id").agg(
+        antiguedad_dias=("customer_tenure_years", lambda x: int(np.nanmedian(x)*365) if len(x) else 0),
+        edad_anios=("customer_age_years", lambda x: int(np.nanmedian(x)) if len(x) else 0),
+        dias_desde_ultima_compra=("purchase_timestamp", lambda x: int((pd.Timestamp(DATA_COLLECTED_AT) - pd.to_datetime(x).max()).days) if x.notna().any() else 0),
+        visitas=("customer_item_views", "sum") if "customer_item_views" in d.columns else ("purchase_id","count"),
+        compras=("purchase_id","count"),
+        gasto=("item_price","sum")
+    ).reset_index()
+    total = cust["gasto"].sum() if len(cust) else 1
+    cust["gasto_pct"] = (cust["gasto"]/total)*100
+    cust = cust.drop(columns=["gasto"])
+    parts = [cust.set_index("customer_id")]
+    for blk in [genero, medio, color, cats, adjs]:
+        if blk is not None and not blk.empty: parts.append(blk)
+    mat = pd.concat(parts, axis=1).fillna(0).reset_index()
+    mat = mat.astype(int, errors="ignore")
+    mat.to_csv(PER_CUST_PATH, index=False)
+    return mat
 
-    tenure = ((today - train_df["customer_signup_date"]) // 365).astype(int)
-    train_df["tenure"] = tenure.astype(int)
-    customer_tenure = group["tenure"].first()
+def _build_preprocessor(num_cols, cat_cols, text_col):
+    trs = [("num", StandardScaler(), num_cols),
+           ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols)]
+    if text_col: trs.append((text_col, CountVectorizer(max_features=200, lowercase=True, binary=True), text_col))
+    return ColumnTransformer(trs, remainder="drop", verbose_feature_names_out=False)
 
-    # ------------ Features agregados ---------#
-    customer_price_stats = ["item_price"].agg(["mean", "std"])
-    customer_price_stats.rename(
-        columns={"mean": "avg_item_price", "std": "std_item_price"}, inplace=True
-    )
-    most_purchased_category = group["item_category"].agg(lambda x: x.mode()[0])
-    most_purchased_category.columns = ["customer_id", "most_purchased_category"]
+def _get_feature_names(pre, num_cols, cat_cols, text_col):
+    n = list(num_cols)
+    if "cat" in pre.named_transformers_: n += list(pre.named_transformers_["cat"].get_feature_names_out(cat_cols))
+    if text_col and text_col in pre.named_transformers_: n += [f"{text_col}_bow_{t}" for t in pre.named_transformers_[text_col].get_feature_names_out()]
+    return n
 
-    # --------- Creando el dataframe ---------#
-    customer_feat = pd.concat(
-        {
-            "cusomer_id": group["customer_id"].first(),
-            "customer_age_years": customer_ages,
-            "customer_tenure_years": customer_tenure,
-            "customer_prefered_cat": most_purchased_category,
-        }
-    ).reset_index(drop=True)
+def _coerce_types(d, num_cols, cat_cols):
+    for c in num_cols:
+        if c in d.columns: d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0)
+    for c in cat_cols:
+        if c in d.columns: d[c] = d[c].astype(str).fillna("unknown")
+    return d
 
-    save_df(customer_feat, "customer_features.csv")
-    return customer_feat
+def preprocess_fit(df):
+    d = _base_row_features(df)
+    num_cols = ["item_price","item_avg_rating","item_num_ratings","customer_age_years","customer_tenure_years"]
+    cat_cols = ["customer_gender","customer_age_range","customer_top_category","customer_top_device","customer_top_color","item_category","item_color","purchase_device"]
+    num_cols = [c for c in num_cols if c in d.columns]
+    cat_cols = [c for c in cat_cols if c in d.columns]
+    text_col = "item_title" if "item_title" in d.columns else None
+    d = _coerce_types(d, num_cols, cat_cols)
+    pre = _build_preprocessor(num_cols, cat_cols, text_col)
+    X = pre.fit_transform(d)
+    cols = _get_feature_names(pre, num_cols, cat_cols, text_col)
+    arr = X.toarray() if hasattr(X,"toarray") else X
+    return pd.DataFrame(arr, columns=cols), pre
 
-
-def build_processor(
-    df, hierarchical_features, categorical_features, free_text_features, training=True
-):
-    """
-    Fits or loads a ColumnTransformer preprocessor and returns a processed DataFrame.
-
-    Parameters:
-    - df: input DataFrame
-    - hierarchical_features: list of numeric columns to scale
-    - categorical_features: list of categorical columns to one-hot encode
-    - training: if True, fit and save preprocessor; if False, load preprocessor
-    - data_dir: directory to save/load preprocessor
-    - preprocessor_name: filename for preprocessor
-
-    Returns:
-    - processed_df: DataFrame with transformed numeric & categorical columns + passthrough columns
-    - preprocessor: fitted ColumnTransformer
-    """
-    savepath = Path(DATA_DIR) / "preprocessor.pkl"
-    if training:
-        numeric_transformer = ...
-        categorical_transformer = ...
-        free_text_transformers = []
-        for col in free_text_features:
-            free_text_transformers.append(
-                (
-                    col,
-                    ...,  # como quieren procesar esta columna?
-                    col,
-                )
-            )
-        preprocessor = ColumnTransformer(
-            transformers=[
-                ("num", numeric_transformer, hierarchical_features),
-                ("cat", categorical_transformer, categorical_features),
-                *free_text_transformers,
-            ],
-            remainder="passthrough",  # Mantener las demas sin tocar
-        )
-
-        df = df.drop(columns=["purchase_id", "label"])  # Not available in test
-        processed_array = preprocessor.fit_transform(df)
-        joblib.dump(preprocessor, savepath)
-    else:
-        preprocessor = joblib.load(savepath)
-        processed_array = preprocessor.transform(df)
-
-    # Numeric
-    num_cols = hierarchical_features
-
-    # Categorical
-    cat_cols = preprocessor.named_transformers_["cat"].get_feature_names_out(
-        categorical_features
-    )
-
-    # Free-text
-    bow_cols = []
-    for col in free_text_features:
-        vectorizer = preprocessor.named_transformers_[col]
-        bow_cols.extend([f"{col}_bow_{t}" for t in vectorizer.get_feature_names_out()])
-
-    # Passthrough
-    other_cols = [
-        c
-        for c in df.columns
-        if c not in hierarchical_features + categorical_features + free_text_features
-        and c != "purchase_id"
-    ]
-
-    final_cols = list(num_cols) + list(cat_cols) + bow_cols + other_cols
-
-    processed_df = pd.DataFrame(processed_array, columns=final_cols)
-    return processed_df
-
-
-def preprocess(raw_df, training=False):
-    """
-    Agrega tu procesamiento de datos, considera si necesitas guardar valores de entrenamiento.
-    Utiliza la bandera para distinguir entre preprocesamiento de entrenamiento y validación/prueba
-    """
-    dropcols = [
-        "purchase_id",
-    ]
-
-    # Hierarchical
-    hierarchical_features = []
-
-    # One hot
-    categorical_features = []
-
-    # Texto
-    free_text_features = []
-
-    # Datetime
-    datetimecols = []
-    for col in datetimecols:
-        raw_df[col] = pd.to_datetime(raw_df[col])
-
-    # Ciclicas
-
-    # ColumnTransformer
-    processed_df = build_processor(
-        raw_df,
-        hierarchical_features,
-        categorical_features,
-        free_text_features,
-        training=training,
-    )
-
-    # Borrar columnas que no sirvan
-    processed_df = processed_df.drop(columns=dropcols)
-    return processed_df
-
+def preprocess_transform(df, pre):
+    d = _base_row_features(df)
+    num_cols = ["item_price","item_avg_rating","item_num_ratings","customer_age_years","customer_tenure_years"]
+    cat_cols = ["customer_gender","customer_age_range","customer_top_category","customer_top_device","customer_top_color","item_category","item_color","purchase_device"]
+    num_cols = [c for c in num_cols if c in d.columns]
+    cat_cols = [c for c in cat_cols if c in d.columns]
+    d = _coerce_types(d, num_cols, cat_cols)
+    text_col = "item_title" if "item_title" in d.columns else None
+    X = pre.transform(d)
+    cols = _get_feature_names(pre, num_cols, cat_cols, text_col)
+    arr = X.toarray() if hasattr(X,"toarray") else X
+    return pd.DataFrame(arr, columns=cols)
 
 def read_train_data():
-    train_df = read_csv("customer_purchases_train")
-    customer_feat = extract_customer_features(train_df)
+    train = read_csv("customer_purchases_train")
+    cf = extract_customer_features(train)
+    _ = build_per_customer_matrix(train)
+    train = train.merge(cf, on="customer_id", how="left")
+    X, pre = preprocess_fit(train.drop(columns=[c for c in ["purchase_id"] if c in train.columns]))
+    y = train["label"].astype(int) if "label" in train.columns else pd.Series(dtype=int)
+    return X, y, pre
 
-    # -------------- Agregar negativos ------------------ #
-    # Generar negativos
-    train_df_neg = gen_random_negatives(train_df, n_per_positive=1)
-    train_df_neg = train_df_neg.drop_duplicates(subset=["customer_id", "item_id"])
-
-    # Agregar Features del cliente
-    train_df_cust = pd.merge(train_df, customer_feat, on="customer_id", how="left")
-
-    processed_pos = preprocess(train_df_cust, training=True)
-    processed_pos["label"] = 1
-
-    # Obtener todas las columnas
-    all_columns = processed_pos.columns
-
-    # Separar los features exclusivos de los items
-    item_feat = [col for col in all_columns if "item" in col]
-    unique_items = processed_pos[item_feat].drop_duplicates(
-        subset=[
-            "item_id",
-        ]
-    )
-
-    # Separar los features exclusivos de los clientes
-    customer_feat = [col for col in all_columns if "customer" in col]
-    unique_customers = processed_pos[customer_feat].drop_duplicates(
-        subset=["customer_id"]
-    )
-
-    # Agregar los features de los items a los negativos
-    processed_neg = pd.merge(
-        train_df_neg,
-        unique_items,
-        on=["item_id"],
-        how="left",
-    )
-
-    # Agregar los features de los usuarios a los negativos
-    processed_neg = pd.merge(
-        processed_neg,
-        unique_customers,
-        on=["customer_id"],
-        how="left",
-    )
-
-    # Agregar etiqueta a los negativos
-    processed_neg["label"] = 0
-
-    # Combinar negativos con positivos para tener el dataset completo
-    processed_full = (
-        pd.concat([processed_pos, processed_neg], axis=0)
-        .sample(frac=1)
-        .reset_index(drop=True)
-    )
-
-    # Randomizar los datos (shuffle de las filas)
-    shuffled = processed_full.sample(frac=1)
-
-    # Transformar a tipo numero
-    shuffled = df_to_numeric(shuffled)
-    y = shuffled["label"]
-
-    # Eliminar columnas que no sirven
-    X = shuffled.drop(columns=["label", "customer_id", "item_id"])
-    return X, y
-
-
-def read_test_data():
-    test_df = read_csv("customer_purchases_test")
-    customer_feat = read_csv("customer_feat.csv")
-    test_df = pd.merge(test_df, customer_feat, on="customer_id")
-
-    # agregar features derivados del cliente al dataset
-    merged = pd.merge(test_df, customer_feat, on="customer_id", how="left")
-
-    # Procesamiento de datos
-    processed = preprocess(merged, training=False)
-
-    # Si se requiere
-    dropcols = []
-    processed = processed.drop(columns=dropcols)
-
-    return df_to_numeric(processed)
-
+def read_test_data(pre):
+    test = read_csv("customer_purchases_test")
+    cf = pd.read_csv(CUST_FEAT_PATH)
+    test = test.merge(cf, on="customer_id", how="left")
+    X = preprocess_transform(test.drop(columns=[c for c in ["purchase_id"] if c in test.columns]), pre)
+    return X
 
 if __name__ == "__main__":
-    train_df = read_train_data()
-    print(train_df.info())
-    test_df = read_csv("customer_purchases_test")
-    print(test_df.columns)
+    X, y, pre = read_train_data()
+    _ = read_test_data(pre)
