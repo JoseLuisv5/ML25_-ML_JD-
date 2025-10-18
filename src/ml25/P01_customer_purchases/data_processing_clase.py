@@ -59,26 +59,25 @@ def extract_customer_features(df):
     group = train_df.groupby("customer_id")
 
     # -------- Tratamientos de fechas --------#
-    age = (today - train_df["customer_date_of_birth"]) // 365
-    train_df["age"] = age.astype(int)
-    customer_ages = group["age"].first()
+    age = (today - train_df["customer_date_of_birth"]).dt.days // 365
+    train_df["customer_age_years"] = age.astype(int)
+    customer_ages = group["customer_age_years"].first()
 
-    tenure = ((today - train_df["customer_signup_date"]) // 365).astype(int)
-    train_df["tenure"] = tenure.astype(int)
-    customer_tenure = group["tenure"].first()
+    tenure = (today - train_df["customer_signup_date"]).dt.days // 365
+    train_df["customer_tenure_year"] = tenure.astype(int)
+    customer_tenure = group["customer_tenure_year"].first()
 
     # ------------ Features agregados ---------#
-    customer_price_stats = ["item_price"].agg(["mean", "std"])
+    customer_price_stats = group["item_price"].agg(["mean", "std"])
     customer_price_stats.rename(
-        columns={"mean": "avg_item_price", "std": "std_item_price"}, inplace=True
+        columns={"mean": "item_avg_price", "std": "item_std_price"}, inplace=True
     )
     most_purchased_category = group["item_category"].agg(lambda x: x.mode()[0])
-    most_purchased_category.columns = ["customer_id", "most_purchased_category"]
 
     # --------- Creando el dataframe ---------#
-    customer_feat = pd.concat(
+    customer_feat = pd.DataFrame(
         {
-            "cusomer_id": group["customer_id"].first(),
+            "customer_id": group["customer_id"].first(),
             "customer_age_years": customer_ages,
             "customer_tenure_years": customer_tenure,
             "customer_prefered_cat": most_purchased_category,
@@ -90,14 +89,14 @@ def extract_customer_features(df):
 
 
 def build_processor(
-    df, hierarchical_features, categorical_features, free_text_features, training=True
+    df, numerical_features, categorical_features, free_text_features, training=True
 ):
     """
     Fits or loads a ColumnTransformer preprocessor and returns a processed DataFrame.
 
     Parameters:
     - df: input DataFrame
-    - hierarchical_features: list of numeric columns to scale
+    - numerical_features: list of numeric columns to scale
     - categorical_features: list of categorical columns to one-hot encode
     - training: if True, fit and save preprocessor; if False, load preprocessor
     - data_dir: directory to save/load preprocessor
@@ -109,27 +108,26 @@ def build_processor(
     """
     savepath = Path(DATA_DIR) / "preprocessor.pkl"
     if training:
-        numeric_transformer = ...
-        categorical_transformer = ...
+        numeric_transformer = StandardScaler()
+        categorical_transformer = OneHotEncoder(handle_unknown="ignore")
         free_text_transformers = []
         for col in free_text_features:
             free_text_transformers.append(
                 (
                     col,
-                    ...,  # como quieren procesar esta columna?
+                    CountVectorizer(),  # como quieren procesar esta columna?
                     col,
                 )
             )
         preprocessor = ColumnTransformer(
             transformers=[
-                ("num", numeric_transformer, hierarchical_features),
+                ("num", numeric_transformer, numerical_features),
                 ("cat", categorical_transformer, categorical_features),
                 *free_text_transformers,
             ],
             remainder="passthrough",  # Mantener las demas sin tocar
         )
-
-        df = df.drop(columns=["purchase_id", "label"])  # Not available in test
+        df = df.drop(columns=["label"], errors="ignore")
         processed_array = preprocessor.fit_transform(df)
         joblib.dump(preprocessor, savepath)
     else:
@@ -137,7 +135,7 @@ def build_processor(
         processed_array = preprocessor.transform(df)
 
     # Numeric
-    num_cols = hierarchical_features
+    num_cols = numerical_features
 
     # Categorical
     cat_cols = preprocessor.named_transformers_["cat"].get_feature_names_out(
@@ -154,8 +152,7 @@ def build_processor(
     other_cols = [
         c
         for c in df.columns
-        if c not in hierarchical_features + categorical_features + free_text_features
-        and c != "purchase_id"
+        if c not in numerical_features + categorical_features + free_text_features
     ]
 
     final_cols = list(num_cols) + list(cat_cols) + bow_cols + other_cols
@@ -171,16 +168,33 @@ def preprocess(raw_df, training=False):
     """
     dropcols = [
         "purchase_id",
+        "customer_date_of_birth",
+        "customer_signup_date",
+        "purchase_item_rating",
+        "purchase_device",
+        "purchase_timestamp",
+        "customer_item_views",
+        "item_release_date",
+        "item_avg_rating",
+        "item_num_ratings",
+        "customer_prefered_cat",
     ]
 
-    # Hierarchical
-    hierarchical_features = []
+    # normalization
+    numerical_feat = [
+        "item_price",
+        "customer_age_years",
+        "customer_tenure_years",
+    ]
 
     # One hot
-    categorical_features = []
+    raw_df["customer_cat_is_prefered"] = (
+        raw_df["item_category"] == raw_df["customer_prefered_cat"]
+    )
+    categorical_features = ["customer_gender", "item_category", "item_img_filename"]
 
     # Texto
-    free_text_features = []
+    free_text_features = ["item_title"]
 
     # Datetime
     datetimecols = []
@@ -192,7 +206,7 @@ def preprocess(raw_df, training=False):
     # ColumnTransformer
     processed_df = build_processor(
         raw_df,
-        hierarchical_features,
+        numerical_feat,
         categorical_features,
         free_text_features,
         training=training,
@@ -261,11 +275,8 @@ def read_train_data():
         .reset_index(drop=True)
     )
 
-    # Randomizar los datos (shuffle de las filas)
-    shuffled = processed_full.sample(frac=1)
-
     # Transformar a tipo numero
-    shuffled = df_to_numeric(shuffled)
+    shuffled = df_to_numeric(processed_full)
     y = shuffled["label"]
 
     # Eliminar columnas que no sirven
@@ -275,8 +286,7 @@ def read_train_data():
 
 def read_test_data():
     test_df = read_csv("customer_purchases_test")
-    customer_feat = read_csv("customer_feat.csv")
-    test_df = pd.merge(test_df, customer_feat, on="customer_id")
+    customer_feat = read_csv("customer_features")
 
     # agregar features derivados del cliente al dataset
     merged = pd.merge(test_df, customer_feat, on="customer_id", how="left")
@@ -292,7 +302,10 @@ def read_test_data():
 
 
 if __name__ == "__main__":
-    train_df = read_train_data()
-    print(train_df.info())
+    X_train, y_train = read_train_data()
+    print(X_train.info())
     test_df = read_csv("customer_purchases_test")
+
+    X_test = read_test_data()
     print(test_df.columns)
+    print("hola")
