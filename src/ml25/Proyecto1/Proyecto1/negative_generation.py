@@ -2,10 +2,15 @@
 import argparse, os
 import numpy as np, pandas as pd
 
+<<<<<<< HEAD:src/ml25/Proyecto1/Proyecto1/negative_generation.py
 DEF_RAW  = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\Proyecto1\Archivos base\customer_purchases_train.csv"
 DEF_FEAT = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\Proyecto1\out_features_agg\train\train_features_per_customer.csv"
+=======
+DEF_RAW  = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto1\Archivos base\customer_purchases_train.csv"
+DEF_FEAT = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto1\out_features_agg\train\train_features_per_customer.csv"
+>>>>>>> 73d113488c0b0635b3f2f45661ba81aaad07b490:src/ml25/Proyecto1/negative_generation.py
 DEF_T0   = "2025-09-21"
-DEF_OUT  = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\out_features_agg\train\train_features_labeled.csv"
+DEF_OUT  = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto1\out_features_agg\train\train_features_labeled.csv"
 
 # Funciones auxiliares
 def to_dt(s):  
