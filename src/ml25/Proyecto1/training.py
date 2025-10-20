@@ -1,11 +1,51 @@
-# training.py (imprime Accuracy en terminal)
+# training.py (imprime Accuracy en terminal + chequeo de overfitting)
 import argparse, os, json
-import numpy as np, pandas as pd
+import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix
 from model import PurchaseModel
 
+# --------------------------
+# Chequeo de overfitting
+# --------------------------
+def _simple_score(model, X, y):
+    """Accuracy usando el umbral del modelo (o 0.5). Soporta modelos sin .score()."""
+    thr = getattr(model, "threshold", 0.5)
+    if hasattr(model, "predict_proba"):
+        p = model.predict_proba(X)[:, 1]
+        yhat = (p >= thr).astype(int)
+    elif hasattr(model, "predict"):
+        yhat = model.predict(X)
+    else:
+        raise AttributeError("El modelo no tiene predict_proba ni predict.")
+    return accuracy_score(y, yhat)
+
+def check_and_prevent_overfitting(model, X_train, X_val, y_train, y_val, X_test=None):
+    print("\n" + "="*60)
+    print("ANALIZANDO OVERFITTING")
+    print("="*60)
+    train_score = _simple_score(model, X_train, y_train)
+    val_score   = _simple_score(model, X_val,   y_val)
+    difference  = train_score - val_score
+
+    print(f"   -Score en train: {train_score:.4f}")
+    print(f"   -Score en validation: {val_score:.4f}")
+    print(f"   -Diferencia: {difference:.4f}")
+
+    if difference > 0.05:
+        print("  POSIBLE OVERFITTING DETECTADO :O")
+        return True
+    elif difference > 0.02:
+        print("  Pequeña diferencia, monitorear :/")
+        return False
+    else:
+        print("  No se detecta overfitting significativo :D")
+        return False
+
+# --------------------------
 # Paths por defecto
+# --------------------------
 DEF_LABELED = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto1\out_features_agg\train\train_features_labeled.csv"
 DEF_OUTDIR  = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto1"
 
@@ -19,23 +59,28 @@ if __name__ == "__main__":
     args = parse_args()
     os.makedirs(args.outdir, exist_ok=True)
 
-    # Carga dataset etiquetado
+    # 1) Carga dataset etiquetado
     df = pd.read_csv(args.labeled)
     y  = df["label"].astype(int).values
-    X  = df.drop(columns=["label","customer_id"])  # solo features numéricas
+    # Solo features (si hay texto/categorías, conviértelas antes o elimínalas aquí)
+    X  = df.drop(columns=["label","customer_id"])
 
-    # Split
+    # 2) Split
     Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=0.25, stratify=y, random_state=42)
 
-    # Modelo (simple .fit)
-    model = PurchaseModel(threshold=0.5)
+    # 3) Modelo (simple .fit)
+    thr = 0.5
+    model = PurchaseModel(threshold=thr)
     model.fit(Xtr, ytr)
 
-    # Predicción en validación
-    pva  = model.predict_proba(Xva)[:, 1]
-    yhat = (pva >= 0.5).astype(int)
+    # 4) Predicción en validación
+    if hasattr(model, "predict_proba"):
+        pva  = model.predict_proba(Xva)[:, 1]
+        yhat = (pva >= thr).astype(int)
+    else:
+        yhat = model.predict(Xva)
 
-    # Métricas
+    # 5) Métricas
     acc  = accuracy_score(yva, yhat)
     bacc = balanced_accuracy_score(yva, yhat)
     cm   = confusion_matrix(yva, yhat)
@@ -46,11 +91,19 @@ if __name__ == "__main__":
     print("Confusion Matrix (rows=true, cols=pred):")
     print(cm)
 
-    # Guardado de modelo y metadatos
+    # 6) Chequeo de overfitting (usando el mismo umbral)
+    _ = check_and_prevent_overfitting(model, Xtr, Xva, ytr, yva)
+
+    # 7) Guardado de modelo y metadatos
     model_path = os.path.join(args.outdir, "model_lr.pkl")
     meta_path  = os.path.join(args.outdir, "model_lr_meta.json")
     model.save(model_path)
-    meta = {"feature_names": X.columns.tolist(), "threshold": 0.5}
+    meta = {
+        "feature_names": X.columns.tolist(),
+        "threshold": float(thr),
+        "val_accuracy": float(acc),
+        "val_balanced_accuracy": float(bacc)
+    }
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
