@@ -1,7 +1,4 @@
-# training.py - Logistic Regression simple
-import sys, numpy as np
-sys.path.insert(0, r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto_1\boilerplate")
-
+import numpy as np
 from data_processing import read_train_data
 from model import PurchaseModel
 from sklearn.model_selection import train_test_split
