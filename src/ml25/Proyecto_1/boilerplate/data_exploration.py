@@ -4,10 +4,10 @@ from pathlib import Path
 from datetime import datetime
 from collections import Counter
 
-#DATA_DIR = Path(r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases")
-#OUT_DIR  = Path(r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto 1")
-DATA_DIR = Path(r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\datasets\customer_purchases")
-OUT_DIR = Path(r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto 1")
+DATA_DIR = Path(r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases")
+OUT_DIR  = Path(r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto 1")
+#DATA_DIR = Path(r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\datasets\customer_purchases")
+#OUT_DIR = Path(r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto 1")
 DATA_COLLECTED_AT = datetime(2025, 9, 21).date()
 ADJ_LIST = ["exclusive","style","casual","stylish","elegant","durable","classic","lightweight","modern","premium","cozy","sporty","trendy","soft"]
 

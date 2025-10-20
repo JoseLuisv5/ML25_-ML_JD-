@@ -17,7 +17,8 @@ DATA_COLLECTED_AT = datetime(2025, 9, 21).date()
 T0 = pd.Timestamp(DATA_COLLECTED_AT).tz_localize("UTC")      # <- T0 en UTC
 T0_PLUS_30 = T0 + pd.Timedelta(days=30)
 
-DATA_DIR = Path(r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\datasets\customer_purchases")
+#DATA_DIR = Path(r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\datasets\customer_purchases")
+DATA_DIR = Path(r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\datasets\customer_purchases")
 PREPROC_PATH = DATA_DIR / "preprocessor.pkl"
 FEATURE_NAMES_PATH = DATA_DIR / "feature_names.npy"
 # ---------------------------------------
