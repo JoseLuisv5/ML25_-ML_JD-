@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/jlvh0/Documents/ML25_-ML_JD-/mlruns/654106894782933239/4db99d87be4e43eb95789270d76ba652/artifacts
+end_time: 1760933374402
+entry_point_name: ''
+experiment_id: '654106894782933239'
+lifecycle_stage: active
+run_id: 4db99d87be4e43eb95789270d76ba652
+run_name: rf_v1
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1760933363162
+status: 3
+tags: []
+user_id: jlvh0

@@ -1,16 +1,19 @@
 from pathlib import Path
 from datetime import datetime
-import os, joblib
+from typing import Optional, Dict
+import os
+import joblib
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
+# Carpeta donde se guardan los modelos .pkl
 MODELS_DIR = (Path(__file__).resolve().parent / "trained_models")
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 class PurchaseModel:
-    def __init__(self, threshold: float = 0.5, params: dict | None = None):
+    def _init_(self, threshold: float = 0.5, params: Optional[Dict] = None):
         self.threshold = float(threshold)
-        # Parámetros por defecto: balanceo de clases y lbfgs
+        # Sin doble escalado; el preprocesador ya estandariza. Balanceo por clase.
         p = {
             "C": 1.0,
             "solver": "lbfgs",
@@ -22,9 +25,9 @@ class PurchaseModel:
             p.update(params)
         self.model = LogisticRegression(**p)
         self.feature_names_ = None
+        self.val_prevalence_ = None  # se setea en training
 
     def fit(self, X, y):
-        # Guarda nombres de columnas para alinear después
         if hasattr(X, "columns"):
             self.feature_names_ = list(X.columns)
         else:
