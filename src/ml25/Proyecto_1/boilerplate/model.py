@@ -2,8 +2,6 @@ from pathlib import Path
 from datetime import datetime
 import os, joblib
 import numpy as np
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 
 MODELS_DIR = (Path(__file__).resolve().parent / "trained_models")
@@ -12,26 +10,30 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 class PurchaseModel:
     def __init__(self, threshold: float = 0.5, params: dict | None = None):
         self.threshold = float(threshold)
-        p = {"C": 1.0, "solver": "lbfgs", "max_iter": 1000, "random_state": 42}
-        if params: p.update(params)
-        self.model = Pipeline([("scaler", StandardScaler()), ("lr", LogisticRegression(**p))])
-        self._is_fitted = False
+        # Parámetros por defecto: balanceo de clases y lbfgs
+        p = {
+            "C": 1.0,
+            "solver": "lbfgs",
+            "max_iter": 1000,
+            "random_state": 42,
+            "class_weight": "balanced",
+        }
+        if params:
+            p.update(params)
+        self.model = LogisticRegression(**p)
         self.feature_names_ = None
 
     def fit(self, X, y):
-        Xn = X.values if hasattr(X, "values") else np.asarray(X)
-        yn = np.asarray(y, dtype=int)
+        # Guarda nombres de columnas para alinear después
         if hasattr(X, "columns"):
-            try: self.feature_names_ = list(X.columns)
-            except: self.feature_names_ = None
-        self.model.fit(Xn, yn)
-        self._is_fitted = True
+            self.feature_names_ = list(X.columns)
+        else:
+            self.feature_names_ = [f"f{i}" for i in range(X.shape[1])]
+        self.model.fit(X, y)
         return self
 
     def predict_proba(self, X):
-        if not self._is_fitted: raise RuntimeError("Entrena primero con fit(X, y).")
-        Xn = X.values if hasattr(X, "values") else np.asarray(X)
-        return self.model.predict_proba(Xn)
+        return self.model.predict_proba(X)
 
     def predict(self, X):
         p1 = self.predict_proba(X)[:, 1]
@@ -46,5 +48,6 @@ class PurchaseModel:
     @staticmethod
     def load(filename: str):
         p = Path(filename)
-        if not p.exists(): p = MODELS_DIR / filename
+        if not p.exists():
+            p = MODELS_DIR / filename
         return joblib.load(p)
