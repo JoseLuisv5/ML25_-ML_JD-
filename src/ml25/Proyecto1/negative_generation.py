@@ -1,37 +1,50 @@
-# negative_generation.py (labels: 1 si compra en (T0, T0+30])
-import argparse, os
-import numpy as np, pandas as pd
-from utils import to_dt, id_to_int
+import pandas as pd, numpy as np, re, json
 
-DEF_RAW  = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\Archivos base\customer_purchases_train.csv"
-DEF_FEAT = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\out_features_agg\train\train_features_per_customer.csv"
-DEF_T0   = "2025-09-21"
-DEF_OUT  = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\out_features_agg\train\train_features_labeled.csv"
+RAW       = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\Archivos base\customer_purchases_train.csv"
+FEAT      = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\train_features_per_customer.csv"
+META_FEAT = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\timing_meta.json"
+OUT       = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\train_features_labeled.csv"
 
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("--raw",  type=str, default=DEF_RAW)
-    p.add_argument("--feat", type=str, default=DEF_FEAT)
-    p.add_argument("--t0",   type=str, default=DEF_T0)
-    p.add_argument("--out",  type=str, default=DEF_OUT)
-    return p.parse_args()
+def to_id_int(x):
+    if pd.isna(x): return np.nan
+    try: return int(x)
+    except:
+        m = re.search(r"(\d+)", str(x)); return int(m.group(1)) if m else np.nan
 
 if __name__ == "__main__":
-    args = parse_args()
-    T0 = pd.Timestamp(args.t0)
+    np.random.seed(42)
 
-    raw = pd.read_csv(args.raw)
-    raw["purchase_timestamp"] = to_dt(raw.get("purchase_timestamp"))
+    meta = json.load(open(META_FEAT,"r",encoding="utf-8"))
+    T0      = pd.Timestamp(meta["T0"])
+    max_ts  = pd.Timestamp(meta["max_ts"])
 
-    # 1 si compra en (T0, T0+30]; si no 0
-    mask = (raw["purchase_timestamp"] > T0) & (raw["purchase_timestamp"] <= T0 + pd.Timedelta(days=30))
-    buyers = raw.loc[mask, "customer_id"].apply(id_to_int).dropna().astype(int).unique().tolist()
-    buyers_set = set(buyers)
+    raw = pd.read_csv(RAW)
+    raw["customer_id"] = raw["customer_id"].apply(to_id_int).astype("Int64")
+    raw["purchase_timestamp"] = pd.to_datetime(raw["purchase_timestamp"], errors="coerce")
 
-    feat = pd.read_csv(args.feat)
-    feat["customer_id"] = feat["customer_id"].astype(int)
-    feat["label"] = feat["customer_id"].isin(buyers_set).astype(int)
+    pos_mask = raw["purchase_timestamp"].notna() & (raw["purchase_timestamp"] > T0) & (raw["purchase_timestamp"] <= max_ts)
+    pre_mask = raw["purchase_timestamp"].notna() & (raw["purchase_timestamp"] <= T0)
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    feat.to_csv(args.out, index=False)
-    print(f"[OK] Labeled -> {args.out} (pos={int((feat.label==1).sum())}, neg={int((feat.label==0).sum())}, total={len(feat)})")
+    buyers = set(raw.loc[pos_mask, "customer_id"].dropna().unique().tolist())
+    active_pre = set(raw.loc[pre_mask, "customer_id"].dropna().unique().tolist())
+    neg_candidates = list(active_pre - buyers)
+
+    feats = pd.read_csv(FEAT)
+    feats["customer_id"] = feats["customer_id"].apply(to_id_int).astype("Int64")
+
+    buyers_in = set(feats.loc[feats["customer_id"].isin(buyers), "customer_id"].unique().tolist())
+    neg_pool  = list(set(feats["customer_id"].dropna().unique().tolist()) & set(neg_candidates))
+
+    if len(buyers_in) == 0: raise RuntimeError("Sin positivos en la ventana final (T0, max_ts].")
+    if len(neg_pool)  == 0: raise RuntimeError("Sin negativos candidatos cruzados con features.")
+
+    take = min(len(buyers_in), len(neg_pool))
+    neg_pick = np.random.choice(neg_pool, size=take, replace=False)
+
+    pos_df = feats[feats["customer_id"].isin(buyers_in)].copy(); pos_df["label"] = 1
+    neg_df = feats[feats["customer_id"].isin(neg_pick)].copy();  neg_df["label"] = 0
+
+    out = pd.concat([pos_df,neg_df],axis=0).drop_duplicates("customer_id").sample(frac=1,random_state=42).reset_index(drop=True)
+    out.to_csv(OUT, index=False)
+    print("Pos:",len(pos_df),"Neg:",len(neg_df),"Total:",len(out), f"| T0={T0} max_ts={max_ts}")
+    print("Guardado en", OUT)

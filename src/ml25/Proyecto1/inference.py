@@ -1,217 +1,143 @@
-# inference.py (Kaggle-ready: salida EXACTA con ID único por fila y pred por cliente propagada)
-import argparse
-import os
-import json
-import numpy as np
-import pandas as pd
+# inference.py
+import pandas as pd, numpy as np, re, json, joblib, os
 
-from utils import to_dt, to_num, id_to_int
-from model import PurchaseModel
+TEST  = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\Archivos base\customer_purchases_test.csv"
+MODEL = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\model_rf.pkl"
+META  = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\model_meta.json"
+META_T= r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\timing_meta.json"
+OUT   = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\preds.csv"
 
-# --- Paths por defecto ---
-DEF_RAW   = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\Archivos base\customer_purchases_test.csv"
-DEF_MODEL = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\model_lr.pkl"
-DEF_META  = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\model_lr_meta.json"
-DEF_OUT   = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\preds.csv"
-DEF_T0    = "2025-09-21"
+def to_dt(s):  return pd.to_datetime(s, errors="coerce")
+def to_num(s): return pd.to_numeric(s, errors="coerce")
+def canon(s):  return str(s).strip().lower() if pd.notna(s) else "unk"
+def color_from_img(fname):
+    if not isinstance(fname,str): return "unk"
+    m = re.search(r"img([a-z]+)\.", fname.lower()); code = m.group(1) if m else ""
+    mapp = {"r":"red","g":"green","y":"yellow","w":"white","o":"orange","p":"purple","bl":"blue","b":"blue","bk":"black","gr":"green"}
+    return mapp.get(code,"unk")
 
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("--raw",   type=str, default=DEF_RAW)
-    p.add_argument("--model", type=str, default=DEF_MODEL)
-    p.add_argument("--meta",  type=str, default=DEF_META)
-    p.add_argument("--out",   type=str, default=DEF_OUT)
-    p.add_argument("--t0",    type=str, default=DEF_T0)
-    # Si tu test no tiene timestamps, usa este flag para no filtrar por fecha
-    p.add_argument("--no_date_filter", action="store_true", default=False)
-    return p.parse_args()
+ADJ = ["luxury","deluxe","exclusive","elegant","casual","modern","classic","stylish",
+       "durable","lightweight","premium","sport","comfort","trend"]
 
-def _multi_hot(df, col, prefix):
-    if col not in df.columns:
-        return None
-    tmp = df[["customer_id", col]].copy()
-    tmp["customer_id"] = tmp["customer_id"].apply(id_to_int).astype("Int64")
-    dmy = pd.get_dummies(tmp[col].astype(str).str.lower(), prefix=prefix, dtype=np.int8)
-    dmy = pd.concat([tmp[["customer_id"]], dmy], axis=1).groupby("customer_id").max().reset_index()
-    dmy["customer_id"] = dmy["customer_id"].astype(np.int32)
-    return dmy
+def resolve_T0(df_test: pd.DataFrame):
+    t0 = None
+    if os.path.exists(META):
+        try:
+            meta = json.load(open(META,"r",encoding="utf-8"))
+            if "T0" in meta and meta["T0"]:
+                t0 = pd.Timestamp(meta["T0"])
+        except:
+            pass
+    if t0 is None and os.path.exists(META_T):
+        try:
+            meta_t = json.load(open(META_T,"r",encoding="utf-8"))
+            if "T0" in meta_t and meta_t["T0"]:
+                t0 = pd.Timestamp(meta_t["T0"])
+        except:
+            pass
+    if t0 is None:
+        ts = to_dt(df_test.get("purchase_timestamp"))
+        t0 = ts.max() if ts.notna().any() else pd.Timestamp.today()
+    return t0
 
-def build_customer_features(df_raw: pd.DataFrame, t0_ts: pd.Timestamp, no_date_filter: bool) -> pd.DataFrame:
-    """Devuelve features agregadas por customer_id (mismo esquema que training)."""
-    df = df_raw.copy()
+def build_features(df, T0):
+    d = df.copy()
+    if "customer_id" not in d.columns:
+        d["customer_id"] = np.arange(len(d), dtype=int)
+    d["customer_id"]            = d["customer_id"].astype(str)
+    d["purchase_timestamp"]     = to_dt(d.get("purchase_timestamp"))
+    d["customer_signup_date"]   = to_dt(d.get("customer_signup_date"))
+    d["customer_date_of_birth"] = to_dt(d.get("customer_date_of_birth"))
+    d["item_price"]             = to_num(d.get("item_price"))
+    d["customer_item_views"]    = to_num(d.get("customer_item_views")).fillna(0)
+    d["item_category"]          = d.get("item_category","unk").map(canon)
+    d["purchase_device"]        = d.get("purchase_device","unk").map(canon)
+    d["customer_gender"]        = d.get("customer_gender","unk").map(canon)
+    d["color"]                  = d.get("item_img_filename","").apply(color_from_img)
+    title = d.get("item_title","").astype(str).str.lower()
 
-    # Casts
-    df["purchase_timestamp"]     = to_dt(df.get("purchase_timestamp"))
-    df["customer_signup_date"]   = to_dt(df.get("customer_signup_date"))
-    df["customer_date_of_birth"] = to_dt(df.get("customer_date_of_birth"))
-    df["item_price"]             = to_num(df.get("item_price"))
-    df["customer_item_views"]    = to_num(df.get("customer_item_views")).fillna(0)
+    def multi_hot(col,prefix):
+        x = pd.get_dummies(d[col], prefix=prefix, dtype=np.int8)
+        x["customer_id"] = d["customer_id"].values
+        return x.groupby("customer_id").max().reset_index()
 
-    # Normaliza IDs
-    df["customer_id"] = df["customer_id"].apply(id_to_int).astype(np.int32)
+    genero_oh = multi_hot("customer_gender","gen")
+    cat_oh    = multi_hot("item_category","cat")
+    dev_oh    = multi_hot("purchase_device","dev")
+    color_oh  = multi_hot("color","color")
 
-    # Filtro temporal (solo si hay timestamps y no nos pidieron evitar filtro)
-    has_ts = bool(df["purchase_timestamp"].notna().any())
-    if (not no_date_filter) and has_ts:
-        df_f = df[df["purchase_timestamp"].notna() & (df["purchase_timestamp"] <= t0_ts)].copy()
-        if len(df_f) == 0:
-            # fallback: usa todo con timestamp válido
-            df_f = df[df["purchase_timestamp"].notna()].copy()
-        if len(df_f) == 0:
-            # último fallback: usa todo
-            df_f = df.copy()
-    else:
-        df_f = df.copy()
-
-    # Agregación por cliente
-    g = df_f.groupby("customer_id", dropna=True)
+    g = d.groupby("customer_id")
     base = g.agg(
-        signup_min    = ("customer_signup_date", "min"),
-        dob_min       = ("customer_date_of_birth", "min"),
-        last_purchase = ("purchase_timestamp", "max"),
-        visitas       = ("customer_item_views", "sum"),
-        gasto_total   = ("item_price", "sum"),
-        compras       = ("purchase_timestamp", "size"),
+        compras=("purchase_timestamp","count"),
+        gasto_total=("item_price","sum"),
+        visitas=("customer_item_views","sum"),
+        price_mean=("item_price","mean"),
+        price_max=("item_price","max"),
+        signup_min=("customer_signup_date","min"),
+        dob_min=("customer_date_of_birth","min")
     ).reset_index()
 
-    # Si no hay last_purchase, usa signup_min para la resta de días
-    if base["last_purchase"].isna().all():
-        base["last_purchase"] = base["signup_min"]
+    base["gasto_total"] = base["gasto_total"].fillna(0)
+    base["visitas"]     = base["visitas"].fillna(0)
+    base["price_mean"]  = base["price_mean"].fillna(0)
+    base["price_max"]   = base["price_max"].fillna(0)
+    base["signup_min"]  = base["signup_min"].fillna(T0)
+    base["dob_min"]     = base["dob_min"].fillna(T0)
 
-    base["antiguedad_dias"] = (t0_ts - base["signup_min"]).dt.days
-    base["edad_anios"] = ((t0_ts - base["dob_min"]).dt.days / 365.25).round(2)
-    base["dias_desde_ultima_compra"] = (t0_ts - base["last_purchase"]).dt.days
+    base["antiguedad_dias"] = (T0 - base["signup_min"]).dt.days.clip(lower=1)
+    base["edad_anios"]      = ((T0 - base["dob_min"]).dt.days/365.25).replace([np.inf,-np.inf],0).fillna(0)
+    base["views_per_day"]   = base["visitas"]/base["antiguedad_dias"]
+    base["buys_per_100d"]   = base["compras"]/(base["antiguedad_dias"]/100.0 + 1.0)
+    base["view_to_buy"]     = base["visitas"]/(base["compras"] + 1.0)
 
-    # Si no hay timestamps válidos en absoluto, fuerza compras=0
-    if not has_ts:
-        base["compras"] = 0
-
-    base["gasto_pct"] = base["gasto_total"].rank(pct=True) * 100.0
-
-    # One-hots
-    genero_oh = _multi_hot(df_f, "customer_gender", "genero")
-    device_oh = _multi_hot(df_f, "purchase_device", "device")
-    cat_oh    = _multi_hot(df_f, "item_category",   "cat")
+    base["log_visitas"]     = np.log1p(base["visitas"])
+    base["log_compras"]     = np.log1p(base["compras"])
+    base["log_gasto_total"] = np.log1p(base["gasto_total"])
+    base["log_price_mean"]  = np.log1p(base["price_mean"])
+    base["log_price_max"]   = np.log1p(base["price_max"])
 
     feats = base[[
-        "customer_id", "antiguedad_dias", "edad_anios",
-        "dias_desde_ultima_compra", "visitas", "gasto_pct", "compras"
-    ]].copy()
+        "customer_id","compras","gasto_total","visitas","price_mean","price_max",
+        "antiguedad_dias","edad_anios",
+        "views_per_day","buys_per_100d","view_to_buy",
+        "log_visitas","log_compras","log_gasto_total","log_price_mean","log_price_max"
+    ]]
 
-    for blk in (genero_oh, device_oh, cat_oh):
-        if blk is not None:
-            blk["customer_id"] = blk["customer_id"].astype(np.int32)
-            feats = feats.merge(blk, on="customer_id", how="left")
+    adj_df = pd.DataFrame({"customer_id": d["customer_id"].values})
+    for w in ADJ:
+        adj_df[f"adj_{w}"] = title.str.contains(rf"\b{re.escape(w)}\b", na=False).astype(np.int8)
+    adj_oh = adj_df.groupby("customer_id").max().reset_index()
 
-    feats = feats.fillna(0)
-    feats["customer_id"] = feats["customer_id"].astype(int)
-    return feats
+    for blk in (genero_oh,cat_oh,dev_oh,color_oh,adj_oh):
+        feats = feats.merge(blk, on="customer_id", how="left")
 
-def align_to_training(feats: pd.DataFrame, feature_names: list):
-    """Alinea columnas a las usadas en training, creando faltantes con 0 y respetando orden."""
-    ids = feats["customer_id"].values
-    X = feats.drop(columns=["customer_id"]).copy()
-    for c in feature_names:
-        if c not in X.columns:
-            X[c] = 0
-    X = X[feature_names]
-    return ids, X
+    return feats.fillna(0)
 
 if __name__ == "__main__":
-    args = parse_args()
-    T0 = pd.Timestamp(args.t0)
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    clf = joblib.load(MODEL)
+    meta = {}
+    if os.path.exists(META):
+        try:
+            meta = json.load(open(META,"r",encoding="utf-8"))
+        except:
+            meta = {}
+    thr = float(meta.get("thr", 0.50))
 
-    # 1) Cargar test crudo
-    df_test = pd.read_csv(args.raw).copy()
-    n_test = len(df_test)
-    print(f"[INFO] filas test: {n_test}")
+    df_test = pd.read_csv(TEST)
+    T0 = resolve_T0(df_test)
 
-    # 2) Detectar columna de ID única por fila del test
-    row_id_candidates = ["ID", "Id", "id", "row_id", "Row_ID"]
-    row_id_col = next((c for c in row_id_candidates if c in df_test.columns), None)
-    if row_id_col is None:
-        # fallback: usar índice 1..N solo si el concurso lo permite (ver sample_submission)
-        df_test["ID"] = np.arange(1, n_test + 1, dtype=int)
-        row_id_col = "ID"
-        print("[WARN] No se encontró columna de ID en el test. Se usará un índice 1..N como ID.")
+    feats = build_features(df_test, T0)
+    X = feats.drop(columns=["customer_id"]).copy()
 
-    # 3) customer_id debe existir para mapear predicciones por cliente
-    if "customer_id" not in df_test.columns:
-        # Si no está, no podemos agrupar por cliente -> ponemos 0 para todos (mejor que fallar)
-        print("[WARN] El test no contiene 'customer_id'. Se emitirá pred=0 para todas las filas.")
-        sub = pd.DataFrame({"ID": df_test[row_id_col].values, "pred": np.zeros(n_test, dtype=int)})
-        sub.to_csv(args.out, index=False)
-        print(f"[OK] Predicciones -> {args.out} (filas={len(sub)})")
-        raise SystemExit(0)
+    if hasattr(clf, "feature_names_in_"):
+        cols = list(clf.feature_names_in_)
+        for c in cols:
+            if c not in X.columns: X[c] = 0
+        X = X[cols]
 
-    # Normaliza customer_id
-    df_test["customer_id"] = df_test["customer_id"].apply(id_to_int).astype(np.int32)
-
-    # 4) Construir features por cliente (como en training)
-    feats_cust = build_customer_features(df_test, T0, no_date_filter=args.no_date_filter)
-    print(f"[INFO] clientes con features: {len(feats_cust)}")
-
-    # 5) Cargar modelo y meta
-    clf: PurchaseModel = PurchaseModel.load(args.model)
-    with open(args.meta, "r", encoding="utf-8") as f:
-        meta = json.load(f)
-    feat_names = meta.get("feature_names", [])
-    thr = float(meta.get("threshold", 0.5))
-
-    # 6) Alinear y predecir (si no hay features, devolvemos 0 para todos)
-    if len(feats_cust) == 0:
-        print("[WARN] No se pudieron construir features por cliente. Se emitirá pred=0 para todas las filas.")
-        df_out = df_test[[row_id_col]].copy()
-        df_out["pred"] = 0
-        sub = df_out.rename(columns={row_id_col: "ID"})
-        # Garantizar tamaño y unicidad de ID
-        assert len(sub) == n_test
-        assert sub["ID"].is_unique
-        sub.to_csv(args.out, index=False)
-        print(f"[OK] Predicciones -> {args.out} (filas={len(sub)})")
-        raise SystemExit(0)
-
-    cust_ids, Xcust = align_to_training(feats_cust, feat_names)
-    if Xcust.shape[0] == 0:
-        print("[WARN] Features alineadas vacías. Se emitirá pred=0 para todas las filas.")
-        df_out = df_test[[row_id_col]].copy()
-        df_out["pred"] = 0
-        sub = df_out.rename(columns={row_id_col: "ID"})
-        assert len(sub) == n_test
-        assert sub["ID"].is_unique
-        sub.to_csv(args.out, index=False)
-        print(f"[OK] Predicciones -> {args.out} (filas={len(sub)})")
-        raise SystemExit(0)
-
-    probs = clf.predict_proba(Xcust)[:, 1]
+    probs = clf.predict_proba(X)[:,1]
     preds = (probs >= thr).astype(int)
-    preds_cust = pd.DataFrame({
-        "customer_id": cust_ids.astype(int),
-        "pred": preds.astype(int)
-    })
 
-    # 7) Propagar a cada fila del test usando el ID de fila ORIGINAL del test
-    df_join = df_test[[row_id_col, "customer_id"]].merge(
-        preds_cust, on="customer_id", how="left"
-    )
-    # Si algún cliente no obtuvo pred, 0 por defecto
-    df_join["pred"] = df_join["pred"].fillna(0).astype(int)
-
-    # Preserva EXACTO el orden del test
-    df_join = df_join.reset_index(drop=True)
-
-   # 8) Exportar EXACTAMENTE (ID, pred) con IDs 0..N-1 en el MISMO orden del test
-    n_test = len(df_test)
-    sub = pd.DataFrame({
-    "ID": np.arange(n_test, dtype=int),          # 0..N-1
-    "pred": df_join["pred"].astype(int).values   # pred propagada por cliente
-    })
-
-# Chequeos
-    assert len(sub) == n_test
-    assert sub["ID"].min() == 0 and sub["ID"].max() == n_test - 1
-    assert sub["ID"].is_unique
-
-    sub.to_csv(args.out, index=False)
-    print(f"[OK] Predicciones -> {args.out} (filas={len(sub)}) | ID 0..{n_test-1}")
+    sub = pd.DataFrame({"ID": np.arange(len(df_test), dtype=int), "Pred": preds})
+    sub.to_csv(OUT, index=False)
+    print(f"Preds: {OUT} | rows={len(sub)} | thr={thr:.2f} | pos_rate={preds.mean():.3f}")

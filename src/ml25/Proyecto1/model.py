@@ -1,34 +1,35 @@
-# model.py (simple LogisticRegression wrapper)
+# model.py  (Random Forest simple y robusto)
 import joblib
-from typing import Optional, List
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 
 class PurchaseModel:
-    def __init__(self, threshold: float = 0.5, params: Optional[dict] = None):
-        self.threshold = float(threshold)
-        cfg = {"max_iter": 1000}
-        if params: cfg.update(params)
-        self.model = LogisticRegression(**cfg)
-        self.feature_names_: Optional[List[str]] = None
+    def __init__(self, threshold=0.5, params=None):
+        self.threshold = threshold
+        base_params = dict(
+            n_estimators=600,
+            max_depth=None,
+            min_samples_leaf=10,
+            max_features="sqrt",
+            n_jobs=-1,
+            random_state=42,
+            class_weight="balanced_subsample",  # ayuda si hay desbalance
+        )
+        if params:
+            base_params.update(params)
+        self.model = RandomForestClassifier(**base_params)
 
     def fit(self, X, y):
-        try:
-            self.feature_names_ = list(X.columns)
-        except Exception:
-            self.feature_names_ = None
         self.model.fit(X, y)
         return self
 
     def predict_proba(self, X):
         return self.model.predict_proba(X)
 
-    def predict(self, X):
-        p = self.predict_proba(X)[:, 1]
-        return (p >= self.threshold).astype(int)
-
-    def save(self, path: str):
-        joblib.dump(self, path)
+    def save(self, path):
+        joblib.dump(self.model, path)
 
     @staticmethod
-    def load(path: str):
-        return joblib.load(path)
+    def load(path):
+        m = PurchaseModel()
+        m.model = joblib.load(path)
+        return m
