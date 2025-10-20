@@ -6,8 +6,8 @@ from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_m
 from model import PurchaseModel
 
 # Paths por defecto
-DEF_LABELED = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\out_features_agg\train\train_features_labeled.csv"
-DEF_OUTDIR  = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1"
+DEF_LABELED = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto1\out_features_agg\train\train_features_labeled.csv"
+DEF_OUTDIR  = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto1"
 
 def parse_args():
     p = argparse.ArgumentParser()

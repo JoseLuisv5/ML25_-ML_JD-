@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 from utils import to_dt, to_num, id_to_int
 
-DEF_RAW    = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\Archivos base\customer_purchases_train.csv"
-DEF_OUTDIR = r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1"
+DEF_RAW    = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto1\Archivos base\customer_purchases_train.csv"
+DEF_OUTDIR = r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto1"
 DEF_T0     = "2025-09-21"
 
 def parse_args():
