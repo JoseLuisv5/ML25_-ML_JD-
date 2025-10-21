@@ -1,4 +1,3 @@
-# model.py (simple LogisticRegression wrapper)
 import joblib
 from typing import Optional, List
 from sklearn.linear_model import LogisticRegression
