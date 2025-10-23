@@ -42,24 +42,38 @@
     "item_title_bow_skirt",
     "item_title_bow_slacks",
     "item_title_bow_stylish",
-    "item_title_bow_suit",
-    "customer_cat_is_prefered"
+    "item_title_bow_suit"
   ],
-  "threshold": 0.5,
-  "train_path": "C:\\Users\\busta\\Desktop\\CETYS\\Profesional\\5to Semestre\\Aprendizaje de Maquina\\ML25_-ML_JD-\\src\\ml25\\datasets\\customer_purchases\\customer_purchases_train_with_ids.csv",
-  "cv_folds": 5,
-  "cv_accuracy_mean": 0.9358069029427746,
-  "cv_accuracy_std": 1.64893647719655e-05,
-  "cv_bal_acc_mean": 0.5,
-  "cv_bal_acc_std": 0.0,
+  "threshold": 0.46000000000000013,
+  "train_shape": [
+    7789,
+    43
+  ],
+  "class_distribution": {
+    "1": 7289,
+    "0": 500
+  },
+  "cv_accuracy_mean": 0.6983170129845504,
+  "cv_accuracy_std": 0.13164442164713294,
+  "cv_bal_acc_mean": 0.5519409407119313,
+  "cv_bal_acc_std": 0.012610744708873235,
+  "cv_roc_auc_mean": 0.5389768696223614,
+  "cv_roc_auc_std": 0.02948775818733745,
+  "optimal_thresholds": [
+    0.5000000000000001,
+    0.45000000000000007,
+    0.5000000000000001,
+    0.45000000000000007,
+    0.40000000000000013
+  ],
   "cm_total": [
     [
-      0,
-      500
+      192,
+      308
     ],
     [
-      0,
-      7289
+      2042,
+      5247
     ]
   ]
 }
