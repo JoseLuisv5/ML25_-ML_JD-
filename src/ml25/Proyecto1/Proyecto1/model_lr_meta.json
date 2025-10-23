@@ -1,0 +1,26 @@
+{
+  "feature_names": [
+    "antiguedad_dias",
+    "edad_anios",
+    "dias_desde_ultima_compra",
+    "visitas",
+    "gasto_pct",
+    "compras",
+    "genero_female",
+    "genero_male",
+    "genero_nan",
+    "device_desktop",
+    "device_mobile",
+    "cat_blouse",
+    "cat_dress",
+    "cat_jacket",
+    "cat_jeans",
+    "cat_shirt",
+    "cat_shoes",
+    "cat_skirt",
+    "cat_slacks",
+    "cat_suit",
+    "cat_t-shirt"
+  ],
+  "threshold": 0.5
+}

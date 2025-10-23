@@ -1,19 +1,11 @@
-# eda_plots_fixed.py
-# Uso:
-#   python eda_plots_fixed.py
-# Genera:
-#   <OUT_DIR>/plots_overview.png
-#   <OUT_DIR>/plots_top_by_age.png
-
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 from datetime import datetime
 from collections import Counter
 
-# --- Rutas por defecto (las tuyas) ---
-DATA_DIR = Path(r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\datasets\customer_purchases")
-OUT_DIR  = Path(r"C:\Users\busta\Desktop\CETYS\Profesional\5to Semestre\Aprendizaje de Maquina\ML25_-ML_JD-\src\ml25\Proyecto1")
+DATA_DIR = Path(r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\Proyecto1\Archivos base")
+OUT_DIR  = Path(r"C:\Users\jlvh0\Documents\ML25_-ML_JD-\src\ml25\Proyecto1\Proyecto1")
 
 DATA_COLLECTED_AT = datetime(2025, 9, 21).date()
 ADJ_LIST = ["exclusive","style","casual","stylish","elegant","durable","classic",
@@ -60,7 +52,6 @@ if __name__ == "__main__":
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     train = read_csv("customer_purchases_train")
 
-    # ===== Derivadas básicas =====
     train["customer_age_years"]  = _age_years(train.get("customer_date_of_birth"))
     train["customer_age_range"]  = _age_range(train["customer_age_years"]).astype("string").fillna("Unknown")
     train["customer_tenure_days"]= (pd.to_datetime(DATA_COLLECTED_AT) - pd.to_datetime(train.get("customer_signup_date"), errors="coerce")).dt.days
@@ -69,13 +60,11 @@ if __name__ == "__main__":
     if "purchase_timestamp" in train.columns:
         train["purchase_timestamp"] = pd.to_datetime(train["purchase_timestamp"], errors="coerce")
 
-    # Normaliza categóricas a "Unknown"
     for col in ["customer_gender", "purchase_device", "item_category"]:
         if col in train.columns:
             train[col] = cat_unknown(train[col])
-    train["item_color"] = cat_unknown(train["item_color"])  # siempre
+    train["item_color"] = cat_unknown(train["item_color"])
 
-    # ===== Agregados por cliente =====
     cust = train.groupby("customer_id").agg(
         compras=("purchase_id","count") if "purchase_id" in train.columns else ("item_price","size"),
         gasto=("item_price","sum"),
@@ -85,23 +74,17 @@ if __name__ == "__main__":
     total_gasto = cust["gasto"].sum() if len(cust) else 1.0
     cust["gasto_pct"] = (cust["gasto"] / total_gasto) * 100.0
 
-    # ===========================
-    # FIGURA 1: OVERVIEW (NO reusa ejes)
-    # ===========================
     fig1, axes1 = plt.subplots(3, 4, figsize=(18, 12))
     ax = axes1.ravel()
 
-    # 0) Scatter gasto_pct (con media)
     ax[0].scatter(cust.index, cust["gasto_pct"], s=8)
     if len(cust):
         ax[0].axhline(cust["gasto_pct"].mean(), ls="--", linewidth=1)
     ax[0].set_title("gasto_pct"); ax[0].set_xlabel("cliente"); ax[0].set_ylabel("% del gasto total")
 
-    # 1) Scatter compras
     ax[1].scatter(cust.index, cust["compras"], s=8)
     ax[1].set_title("compras"); ax[1].set_xlabel("cliente"); ax[1].set_ylabel("n° compras")
 
-    # 2) Género
     if "customer_gender" in train.columns:
         vc = train["customer_gender"].value_counts(dropna=False)
         vc.plot(kind="bar", ax=ax[2], title="Género")
@@ -109,7 +92,6 @@ if __name__ == "__main__":
     else:
         ax[2].axis("off")
 
-    # 3) Dispositivo
     if "purchase_device" in train.columns:
         vc = train["purchase_device"].value_counts(dropna=False)
         vc.plot(kind="bar", ax=ax[3], title="Medio")
@@ -117,11 +99,9 @@ if __name__ == "__main__":
     else:
         ax[3].axis("off")
 
-    # 4) Color
     train["item_color"].value_counts(dropna=False).plot(kind="bar", ax=ax[4], title="Color")
     ax[4].set_xlabel(""); ax[4].tick_params(axis='x', rotation=0)
 
-    # 5) Adjetivos
     adjs = _adj_counts(train["item_title"] if "item_title" in train.columns else None).head(10)
     if not adjs.empty:
         adjs.plot(kind="bar", ax=ax[5], title="Adjetivos")
@@ -129,7 +109,6 @@ if __name__ == "__main__":
     else:
         ax[5].axis("off")
 
-    # 6) Categoría (pie) – solo si existe
     if "item_category" in train.columns:
         train["item_category"].value_counts(dropna=False).head(8).plot(
             kind="pie", ax=ax[6], autopct="%1.0f%%", ylabel="", title="Categoría"
@@ -137,32 +116,27 @@ if __name__ == "__main__":
     else:
         ax[6].axis("off")
 
-    # 7) Categoría (bar)
     if "item_category" in train.columns:
         train["item_category"].value_counts(dropna=False).head(10).plot(kind="bar", ax=ax[7], title="Categoría (bar)")
         ax[7].set_xlabel(""); ax[7].tick_params(axis='x', rotation=45)
     else:
         ax[7].axis("off")
 
-    # 8) Rangos de edad
     train["customer_age_range"].value_counts(dropna=False).sort_index().plot(kind="bar", ax=ax[8], title="Rangos de edad")
     ax[8].set_xlabel(""); ax[8].tick_params(axis='x', rotation=0)
 
-    # 9) Precio (hist)
     if "item_price" in train.columns and train["item_price"].notna().any():
         train["item_price"].dropna().plot(kind="hist", bins=20, ax=ax[9], title="Precio")
         ax[9].set_xlabel("precio")
     else:
         ax[9].axis("off")
 
-    # 10) Rating (hist)
     if "item_avg_rating" in train.columns and train["item_avg_rating"].notna().any():
         train["item_avg_rating"].dropna().plot(kind="hist", bins=10, ax=ax[10], title="Rating")
         ax[10].set_xlabel("rating")
     else:
         ax[10].axis("off")
 
-    # 11) libre
     ax[11].axis("off")
 
     plt.tight_layout()
@@ -171,12 +145,7 @@ if __name__ == "__main__":
     plt.close(fig1)
     print("[OK] Guardado:", fig1_path)
 
-    # =========================================
-    # FIGURA 2: TOP categorías por grupo de edad
-    # (ejes separados → sin superposición)
-    # =========================================
     buckets = ["<=18","18-24","25-34","35-44","45-54","55-64","65+"]
-    # Filtra solo buckets presentes
     buckets = [b for b in buckets if (train["customer_age_range"] == b).any()]
     if len(buckets) == 0 or "item_category" not in train.columns:
         print("[INFO] Sin buckets de edad o sin item_category; no se genera plots_top_by_age.png")
@@ -198,7 +167,6 @@ if __name__ == "__main__":
             ax2[i].set_xlabel("item_category"); ax2[i].set_ylabel("Frequency")
             ax2[i].tick_params(axis='x', rotation=45)
 
-        # oculta ejes sobrantes
         for j in range(len(buckets), len(ax2)):
             ax2[j].axis("off")
 
