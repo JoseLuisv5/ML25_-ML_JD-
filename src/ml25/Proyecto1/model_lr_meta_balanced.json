@@ -1,0 +1,79 @@
+{
+  "feature_names": [
+    "item_price",
+    "customer_age_years",
+    "customer_tenure_years",
+    "customer_gender_female",
+    "customer_gender_male",
+    "customer_gender_nan",
+    "item_category_blouse",
+    "item_category_dress",
+    "item_category_jacket",
+    "item_category_jeans",
+    "item_category_shirt",
+    "item_category_shoes",
+    "item_category_skirt",
+    "item_category_slacks",
+    "item_category_suit",
+    "item_category_t-shirt",
+    "item_img_filename_imgb.jpg",
+    "item_img_filename_imgbl.jpg",
+    "item_img_filename_imgg.jpg",
+    "item_img_filename_imgo.jpg",
+    "item_img_filename_imgp.jpg",
+    "item_img_filename_imgr.jpg",
+    "item_img_filename_imgw.jpg",
+    "item_img_filename_imgy.jpg",
+    "item_title_bow_blouse",
+    "item_title_bow_casual",
+    "item_title_bow_classic",
+    "item_title_bow_collection",
+    "item_title_bow_dress",
+    "item_title_bow_durable",
+    "item_title_bow_elegant",
+    "item_title_bow_exclusive",
+    "item_title_bow_jacket",
+    "item_title_bow_jeans",
+    "item_title_bow_lightweight",
+    "item_title_bow_modern",
+    "item_title_bow_premium",
+    "item_title_bow_shirt",
+    "item_title_bow_shoes",
+    "item_title_bow_skirt",
+    "item_title_bow_slacks",
+    "item_title_bow_stylish",
+    "item_title_bow_suit"
+  ],
+  "threshold": 0.46000000000000013,
+  "train_shape": [
+    7789,
+    43
+  ],
+  "class_distribution": {
+    "1": 7289,
+    "0": 500
+  },
+  "cv_accuracy_mean": 0.6983170129845504,
+  "cv_accuracy_std": 0.13164442164713294,
+  "cv_bal_acc_mean": 0.5519409407119313,
+  "cv_bal_acc_std": 0.012610744708873235,
+  "cv_roc_auc_mean": 0.5389768696223614,
+  "cv_roc_auc_std": 0.02948775818733745,
+  "optimal_thresholds": [
+    0.5000000000000001,
+    0.45000000000000007,
+    0.5000000000000001,
+    0.45000000000000007,
+    0.40000000000000013
+  ],
+  "cm_total": [
+    [
+      192,
+      308
+    ],
+    [
+      2042,
+      5247
+    ]
+  ]
+}
