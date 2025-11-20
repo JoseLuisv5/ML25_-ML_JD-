@@ -8,6 +8,8 @@ ipykernel
 ipympl
 notebook
 scipy
-gymnasium>=0.26.3
+swig
+Box2D
+gymnasium
 gymnasium[classic_control]
 scikit-fuzzy
