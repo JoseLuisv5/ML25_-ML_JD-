@@ -14,7 +14,7 @@ import pandas as pd
 import cv2
 import os
 import numpy as np
-from ml_clases.proyectos.P02_facial_expressions.utils import (
+from ml25.P02_facial_expressions.utils import (
     to_numpy,
     to_torch,
     add_img_text,
