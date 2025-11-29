@@ -2,14 +2,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import cv2
-from ml_clases.proyectos.P02_facial_expressions.network import Network
+from ml25.P02_facial_expressions.network import Network
 import torch
-from ml_clases.proyectos.P02_facial_expressions.utils import (
+from ml25.P02_facial_expressions.utils import (
     to_numpy,
     get_transforms,
     add_img_text,
 )
-from ml_clases.proyectos.P02_facial_expressions.dataset import EMOTIONS_MAP
+from ml25.P02_facial_expressions.dataset import EMOTIONS_MAP
 import pathlib
 
 file_path = pathlib.Path(__file__).parent.absolute()
@@ -60,5 +60,5 @@ def predict(img_title_paths):
 
 if __name__ == "__main__":
     # Direcciones relativas a este archivo
-    img_paths = ["./test_imgs/happy.png"]
+    img_paths = ["./test_imgs/PrivateTest_88305.jpg"]
     predict(img_paths)
