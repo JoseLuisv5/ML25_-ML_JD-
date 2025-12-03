@@ -60,5 +60,37 @@ def predict(img_title_paths):
 
 if __name__ == "__main__":
     # Direcciones relativas a este archivo
-    img_paths = ["./test_imgs/PrivateTest_88305.jpg"]
+    img_paths = ["./test_imgs/1.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/2.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/3.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/4.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/5.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/6.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/7.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/8.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/jsoelius.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/PrivateTest_218533.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/PrivateTest_1561788.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/WhatsApp Image 2025-11-29 at 3.21.09 PM.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/WhatsApp Image 2025-11-29 at 3.32.12 PM.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/WhatsApp Image 2025-11-29 at 3.32.40 PM.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/happy.png"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/image.png"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/PrivateTest_2602445.jpg"]
     predict(img_paths)

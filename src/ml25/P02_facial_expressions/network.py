@@ -25,7 +25,7 @@ class Network(nn.Module):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         # TODO: Calcular dimension de salida
-         # ---- 1) Calcular la dimensión de salida (ancho/alto) después de conv+pool ----
+        # ---- 1) Calcular la dimensión de salida (ancho/alto) después de conv+pool ----
         d = input_dim  # empieza en 48
 
         # Conv1: kernel=3, padding=1, stride=1 -> mantiene tamaño
@@ -40,8 +40,9 @@ class Network(nn.Module):
 
         out_dim = 64 * d * d  # 64 canales, 12x12 -> 64*12*12 = 9216
 
-        # TODO: Define las capas de tu red
+        # ---- 2) Definir las capas de la red ----
 
+        # Capas convolucionales
         self.conv1 = nn.Conv2d(
             in_channels=1, out_channels=32, kernel_size=3, padding=1
         )
@@ -51,10 +52,12 @@ class Network(nn.Module):
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         # Capas fully-connected
-        self.fc1 = nn.Linear(out_dim, 128)
-        self.fc2 = nn.Linear(128, n_classes)
+        self.fc1 = nn.Linear(out_dim, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, n_classes)
 
         self.to(self.device)
+
 
     def calc_out_dim(self, in_dim, kernel_size, stride=1, padding=0):
         out_dim = math.floor((in_dim - kernel_size + 2 * padding) / stride) + 1
@@ -62,6 +65,7 @@ class Network(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # TODO: Define la propagacion hacia adelante de tu red
+        # Asegurar que esté en el device correcto
         x = x.to(self.device)
 
         # Si viene sin dimensión de batch (C,H,W) lo convertimos a (1,C,H,W)
@@ -81,8 +85,10 @@ class Network(nn.Module):
 
         # Fully-connected
         x = F.relu(self.fc1(x))
-        logits = self.fc2(x)
+        x = F.relu(self.fc2(x))
+        logits = self.fc3(x)
         proba = F.softmax(logits, dim=1)
+
         return logits, proba
 
     def predict(self, x):

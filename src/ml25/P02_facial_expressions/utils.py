@@ -28,6 +28,9 @@ def get_transforms(split, img_size):
         transforms = torchvision.transforms.Compose(
             [
                 *common,
+                torchvision.transforms.RandomHorizontalFlip(p=0.5),
+                torchvision.transforms.RandomRotation(10),
+                torchvision.transforms.RandomCrop(img_size, padding=4),
                 torchvision.transforms.ColorJitter(
                     brightness=0.5, contrast=0.4, saturation=0, hue=0
                 ),

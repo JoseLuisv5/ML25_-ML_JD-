@@ -41,19 +41,20 @@ def validation_step(val_loader, net, cost_function):
     returns:
     - val_loss (float): el costo total (promedio por minibatch) de todos los datos de validación
     """
+    net.eval()
     val_loss = 0.0
     for i, batch in enumerate(val_loader, 0):
         batch_imgs = batch["transformed"]
         batch_labels = batch["label"]
         device = net.device
+        batch_imgs = batch_imgs.to(device)
         batch_labels = batch_labels.to(device)
+
         with torch.inference_mode():
-            # TODO: realiza un forward pass, calcula el loss y acumula el costo
-            with torch.inference_mode():
-                # 1) forward
-                logits, _ = net(batch_imgs)
-                # 2) loss
-                loss = cost_function(logits, batch_labels)
+            # 1) forward
+            logits, _ = net(batch_imgs)
+            # 2) loss
+            loss = cost_function(logits, batch_labels)
 
         # 3) acumular el costo
         val_loss += loss.item()
@@ -66,7 +67,7 @@ def train():
     cfg = {
         "training": {
             "learning_rate": 1e-4,
-            "n_epochs": 50,
+            "n_epochs": 60,
             "batch_size": 256,
         },
     }
@@ -84,10 +85,18 @@ def train():
     val_dataset, val_loader = get_loader("val", batch_size=batch_size, shuffle=False)
     labels = np.array(train_dataset._labels)          # vector de etiquetas (0–6)
     class_counts = np.bincount(labels)                # cuántos hay de cada clase
-    print("class_counts:", class_counts)
-    class_weights = 1.0 / class_counts
+        # Calcular pesos de clase (para balancear el desbalance)
+    class_weights = 1.0 / class_counts           # clases raras → peso más grande
     class_weights = class_weights / class_weights.sum() * len(class_weights)
-    class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32).to("cuda" if torch.cuda.is_available() else "cpu")
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    class_weights_tensor = torch.tensor(
+        class_weights, dtype=torch.float32
+    ).to(device)
+
+    print("class_counts:", class_counts)
+    print("class_weights:", class_weights)
+
     print(
         f"Cargando datasets --> entrenamiento: {len(train_dataset)}, validacion: {len(val_dataset)}"
     )
@@ -105,6 +114,9 @@ def train():
     )       
 
     best_epoch_loss = np.inf
+    best_epoch_loss = np.inf
+    patience = 10              # cuántos epochs seguidos aguanta sin mejorar
+    epochs_no_improve = 0
     for epoch in range(n_epochs):
         train_loss = 0
         for i, batch in enumerate(tqdm(train_loader, desc=f"Epoch: {epoch}")):
@@ -129,8 +141,8 @@ def train():
             # 5) actualizamos pesos
             optimizer.step()
 
-        # 6) acumulamos el costo
-        train_loss += loss.item()
+            # 6) acumulamos el costo
+            train_loss += loss.item()
 
          # TODO acumula el costo
 
@@ -144,7 +156,10 @@ def train():
         # TODO guarda el modelo si el costo de validación es menor al mejor costo de validación
         if val_loss < best_epoch_loss:
             best_epoch_loss = val_loss
+            epochs_no_improve=0
             modelo.save_model("modelo_1.pt")
+        else:
+            epochs_no_improve += 1
         run.log(
             {
                 "epoch": epoch,
@@ -152,6 +167,9 @@ def train():
                 "val/loss": val_loss,
             }
         )
+        if epochs_no_improve >= patience:
+            print(f"Early stopping en epoch {epoch}")
+            break
 
 
 if __name__ == "__main__":
