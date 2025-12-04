@@ -60,6 +60,18 @@ def predict(img_title_paths):
 
 if __name__ == "__main__":
     # Direcciones relativas a este archivo
+    img_paths = ["./test_imgs/10.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/11.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/PrivateTest_807646.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/PrivateTest_1290484.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/PrivateTest_731447.jpg"]
+    predict(img_paths)
+    img_paths = ["./test_imgs/9.jpeg"]
+    predict(img_paths)
     img_paths = ["./test_imgs/1.jpg"]
     predict(img_paths)
     img_paths = ["./test_imgs/2.jpg"]
